@@ -209,7 +209,7 @@ Represents the data or reference for a file within a `FilePart`.
 | Field Name | Type               | Required                       | Description                                                                                                                                                            |
 | :--------- | :----------------- | :----------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`     | `string` \| `null` | No                             | The original filename, if known (e.g., "report.pdf").                                                                                                                  |
-| `mimeType` | `string` \| `null` | No                             | The [MIME type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) of the file (e.g., "image/png", "application/pdf"). Strongly recommended. |
+| `mimeType` | `string` \| `null` | No                             | The [MIME type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) of the file (e.g., `image/png`, `application/pdf`). Strongly recommended. |
 | `bytes`    | `string` \| `null` | Conditionally (See Constraint) | Base64 encoded string of the raw file content.                                                                                                                         |
 | `uri`      | `string` \| `null` | Conditionally (See Constraint) | A URI (absolute URL preferred) pointing to the file content. The accessibility of the URI depends on the context between client and server.                            |
 
@@ -407,7 +407,7 @@ A2A uses standard [JSON-RPC 2.0 error codes](https://www.jsonrpc.org/specificati
 | `-32600`             | `InvalidRequestError`       | Request payload validation error | JSON is valid, but not a valid JSON-RPC Request object.      |
 | `-32601`             | `MethodNotFoundError`       | Method not found                 | The requested `method` does not exist on the server.         |
 | `-32602`             | `InvalidParamsError`        | Invalid parameters               | The `params` provided for the method are invalid or missing. |
-| `-32603`             | `InternalError`             | Internal error                   | An unexpected error occurred on the server side.             |
+| `-32603`             | `InternalError`             | Internal error                   | An unexpected error occurred on the server.                  |
 | `-32000` to `-32099` | _(Server defined)_          | _(Server defined)_               | Reserved for implementation-specific server errors.          |
 
 ### 8.2. A2A Specific Errors
@@ -644,7 +644,7 @@ These use codes within the `-32000` to `-32099` range.
           ]
         },
         "pushNotification": {
-          "url": "https://mycompany.com/webhooks/a2a/task_updates",
+          "url": "https://example.com/webhooks/a2a/task_updates",
           "token": "opaque-client-token-for-task-777", // For client validation
           "authentication": {
             // Info for SERVER to authenticate TO webhook
@@ -672,7 +672,7 @@ These use codes within the `-32000` to `-32099` range.
     }
     ```
 
-3.  **(Later: Hours/Days) Server -> Webhook URL:** When the task completes, the server makes an **authenticated** POST request to `https://mycompany.com/webhooks/a2a/task_updates`.
+3.  **(Later: Hours/Days) Server -> Webhook URL:** When the task completes, the server makes an **authenticated** POST request to `https://example.com/webhooks/a2a/task_updates`.
 
     - **Request Headers likely include:**
       - `Authorization: Bearer <server_obtained_jwt>` (Server gets this JWT based on `pushNotification.authentication` requirements, perhaps using client credentials flow with an identity provider trusted by the webhook).
@@ -692,7 +692,7 @@ These use codes within the `-32000` to `-32099` range.
       }
       ```
 
-4.  **Webhook -> Client:** The webhook endpoint (`mycompany.com`) **verifies** the incoming request (checks `Authorization` token validity, checks `X-A2A-Token` matches expectation for the task, potentially checks payload signature) and then notifies the original client application internally (e.g., via a message queue, internal API call).
+4.  **Webhook -> Client:** The webhook endpoint (`example.com`) **verifies** the incoming request (checks `Authorization` token validity, checks `X-A2A-Token` matches expectation for the task, potentially checks payload signature) and then notifies the original client application internally (e.g., via a message queue, internal API call).
 5.  **Client -> Server (Optional):** The client, now notified, can call `tasks/get` to retrieve the full `Task` object including the generated report artifact(s).
 
     ```json

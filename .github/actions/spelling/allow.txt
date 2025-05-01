@@ -3,10 +3,14 @@ ACo
 ADK
 AServer
 Autogen
+DDo
 DGT
+EUR
 Genkit
 JHv
 JWKS
+JWTs
+LHR
 LLM
 LLMs
 MWpm
@@ -31,6 +35,7 @@ gle
 googleai
 googleblog
 iat
+ietf
 inbox
 jherr
 langgraph
@@ -39,6 +44,7 @@ linkedin
 llm
 mcp
 mozilla
+multipage
 ollama
 oneof
 pymdownx
@@ -47,9 +53,14 @@ rcm
 reposted
 sse
 systemctl
+taskssend
+taskstate
+taskstatus
+textpart
 ugc
 utm
 voa
 webpage
+whatwg
 wikipedia
 youtube
