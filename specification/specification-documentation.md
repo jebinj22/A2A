@@ -4,7 +4,7 @@
 
 ## 1. Introduction
 
-The Agent2Agent (A2A) Protocol is an open standard designed to facilitate communication and interoperability between independent, potentially opaque AI agent systems. In an ecosystem where agents might be built using different frameworks, languages, or vendors, A2A provides a common language and interaction model. This enables agents to discover each other's capabilities, negotiate interaction modalities (text, files, structured data), manage collaborative tasks, and securely exchange information to achieve user goals without needing access to each other's internal state, memory, or tools.
+The Agent2Agent (A2A) Protocol is an open standard designed to facilitate communication and interoperability between independent, potentially opaque AI agent systems. In an ecosystem where agents might be built using different frameworks, languages, or vendors, A2A provides a common language and interaction model. This enables agents to discover each other's capabilities, negotiate interaction modalities (text, files, structured data), manage collaborative tasks, and securely exchange information to achieve user goals **without needing access to each other's internal state, memory, or tools.**
 
 **Key Goals:**
 
@@ -34,23 +34,23 @@ Understanding these core concepts is essential for implementing or interacting w
 
 ## 3. Transport and Format
 
-- **Transport:** A2A communication occurs over HTTP(S).
-- **Data Format:** A2A uses **JSON-RPC 2.0** as the payload format for all requests and responses. See [Section 6.11](#611-json-rpc-structures).
-- **Streaming Transport:** When streaming is used ([`tasks/sendSubscribe`](#72-taskssendsubscribe), [`tasks/resubscribe`](#77-tasksresubscribe)), the server sends updates using **Server-Sent Events (SSE)** over the established HTTP connection. Each SSE `data` field contains a JSON-RPC 2.0 Response object ([`SendTaskStreamingResponse`](#721-sendtaskstreamingresponse-object)).
+- **Transport:** A2A communication occurs over HTTP(S). Production deployments MUST use HTTPS.
+- **Data Format:** A2A uses **[JSON-RPC 2.0](https://www.jsonrpc.org/specification)** as the payload format for all requests and responses. See [Section 6.11: JSON-RPC Structures](#611-json-rpc-structures).
+- **Streaming Transport:** When streaming is used ([`tasks/sendSubscribe`](#72-taskssendsubscribe), [`tasks/resubscribe`](#77-tasksresubscribe)), the server sends updates using **[Server-Sent Events (SSE)](https://html.spec.whatwg.org/multipage/server-sent-events.html#server-sent-events)** over the established HTTP connection. Each SSE `data` field contains a JSON-RPC 2.0 Response object ([`SendTaskStreamingResponse`](#721-sendtaskstreamingresponse-object)).
 
 ## 4. Authentication and Authorization
 
 A2A treats agents as standard enterprise applications, relying on established web security practices rather than defining new ones within the protocol payload.
 
-- **Transport Security:** Production deployments MUST use HTTPS with modern TLS configurations.
-- **Server Identity:** Clients SHOULD verify the server's identity using its TLS certificate.
+- **Transport Security:** Production deployments MUST use HTTPS with modern [TLS](https://datatracker.ietf.org/doc/html/rfc8446) configurations.
+- **Server Identity:** Clients SHOULD verify the server's identity using its TLS certificate during the TLS handshake.
 - **Client/User Identity:** Identity information is NOT transmitted within A2A JSON-RPC payloads. Authentication requirements are declared in the [`AgentCard`](#51-agentcard-object).
 - **Authentication Process:**
-  1.  The client discovers the server's required authentication schemes via the `AgentCard`. See [`AgentAuthentication`](#54-agentauthentication-object).
-  2.  The client obtains the necessary credentials (e.g., API keys, OAuth tokens, JWTs) through an out-of-band process specific to the required scheme.
-  3.  The client includes these credentials in the HTTP headers (e.g., `Authorization: Bearer <token>`) of every A2A request.
-- **Server Responsibility:** The A2A Server MUST authenticate every incoming request. It SHOULD use standard HTTP status codes (401 Unauthorized, 403 Forbidden) and relevant headers (e.g., `WWW-Authenticate`) for challenges or rejections.
-- **In-Task Authentication:** If an agent requires additional credentials _during_ a task (e.g., to access a specific tool on behalf of the user), it should transition the task to the `input-required` state ([`TaskState`](#63-taskstate-enum)) and provide necessary details (potentially using an [`AuthenticationInfo`](#69-authenticationinfo-object) structure within a [`DataPart`](#653-datapart-object)). The client obtains these credentials out-of-band and provides them in a subsequent [`tasks/send`](#71-taskssend) request.
+  1.  The client discovers the server's required authentication schemes via the `AgentCard`. See [`AgentAuthentication`](#54-agentauthentication-object). Schemes often align with [OpenAPI Authentication methods](https://swagger.io/docs/specification/authentication/) (e.g., "Bearer", "Basic", "OAuth2").
+  2.  The client obtains the necessary credentials (e.g., API keys, OAuth tokens, JWTs) through an **out-of-band process** specific to the required scheme (e.g., OAuth 2.0 flows).
+  3.  The client includes these credentials in the appropriate [HTTP headers](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers) (e.g., `Authorization: Bearer <token>`) of every A2A request.
+- **Server Responsibility:** The A2A Server MUST authenticate every incoming request based on the provided HTTP credentials and its declared requirements. It SHOULD use standard HTTP status codes ([`401 Unauthorized`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401), [`403 Forbidden`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403)) and relevant headers (e.g., [`WWW-Authenticate`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/WWW-Authenticate)) for challenges or rejections.
+- **In-Task Authentication:** If an agent requires additional credentials _during_ a task (e.g., to access a specific tool on behalf of the user), it should transition the task to the `input-required` state ([`TaskState`](#63-taskstate-enum)) and provide necessary details (potentially using an [`AuthenticationInfo`](#69-authenticationinfo-object) structure within a [`DataPart`](#653-datapart-object)). The client obtains these new credentials out-of-band and provides them in a subsequent [`tasks/send`](#71-taskssend) or [`tasks/sendSubscribe`](#72-taskssendsubscribe) request.
 - **Authorization:** Servers are responsible for authorizing requests based on the authenticated client/user identity. Authorization MAY be enforced based on specific skills requested ([`AgentSkill`](#55-agentskill-object)) or actions attempted within the task.
 
 _(See also [Enterprise Readiness Topic](https://google.github.io/A2A/#/topics/enterprise_ready.md))_
@@ -59,27 +59,27 @@ _(See also [Enterprise Readiness Topic](https://google.github.io/A2A/#/topics/en
 
 A2A Servers MUST publish an Agent Card, a JSON document describing their capabilities and how to interact with them.
 
-- **Recommended Location:** `https://{server_domain}/.well-known/agent.json`
+- **Recommended Location:** `https://{server_domain}/.well-known/agent.json` (See [RFC 8615 Well-Known URIs](https://datatracker.ietf.org/doc/html/rfc8615))
 - **Discovery Methods:** Clients can find Agent Cards via the well-known path, curated registries, or private mechanisms. _(See [Agent Discovery Topic](https://google.github.io/A2A/#/topics/agent_discovery.md))_
-- **Security:** Agent Cards containing sensitive information (like default credentials) MUST be protected by appropriate access controls (e.g., mTLS, authentication).
+- **Security:** Agent Cards containing sensitive information (like default credentials in the `authentication` field) MUST be protected by appropriate access controls (e.g., mTLS, network restrictions, authentication on the endpoint serving the card).
 
 ### 5.1. `AgentCard` Object
 
 Describes the A2A Server (Remote Agent).
 
-| Field Name           | Type                                                              | Required | Description                                                                                                               |
-| :------------------- | :---------------------------------------------------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------ |
-| `name`               | `string`                                                          | Yes      | Human-readable name of the agent (e.g., "Recipe Agent").                                                                  |
-| `description`        | `string` \| `null`                                                | No       | Human-readable description of the agent's purpose. CommonMark MAY be used.                                                |
-| `url`                | `string`                                                          | Yes      | The base URL endpoint for the agent's A2A service (where JSON-RPC requests are sent).                                     |
-| `provider`           | [`AgentProvider`](#52-agentprovider-object) \| `null`             | No       | Information about the organization providing the agent.                                                                   |
-| `version`            | `string`                                                          | Yes      | Version string for the agent or its A2A implementation (format defined by provider).                                      |
-| `documentationUrl`   | `string` \| `null`                                                | No       | URL pointing to human-readable documentation for the agent.                                                               |
-| `capabilities`       | [`AgentCapabilities`](#53-agentcapabilities-object)               | Yes      | Specifies optional features supported by the agent (streaming, push notifications, etc.).                                 |
-| `authentication`     | [`AgentAuthentication`](#54-agentauthentication-object) \| `null` | No       | Authentication schemes required to interact with the agent. Intended to align with OpenAPI Auth.                          |
-| `defaultInputModes`  | `string[]`                                                        | No       | Array of MIME types the agent generally accepts as input (e.g., "text/plain", "image/png"). Default: `["text"]`.          |
-| `defaultOutputModes` | `string[]`                                                        | No       | Array of MIME types the agent generally produces as output (e.g., "text/plain", "application/json"). Default: `["text"]`. |
-| `skills`             | [`AgentSkill[]`](#55-agentskill-object)                           | Yes      | An array of specific skills or capabilities the agent offers.                                                             |
+| Field Name           | Type                                                              | Required | Description                                                                                                                                                                                                 |
+| :------------------- | :---------------------------------------------------------------- | :------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`               | `string`                                                          | Yes      | Human-readable name of the agent (e.g., "Recipe Agent").                                                                                                                                                    |
+| `description`        | `string` \| `null`                                                | No       | Human-readable description of the agent's purpose. [CommonMark](https://commonmark.org/) MAY be used for formatting.                                                                                        |
+| `url`                | `string`                                                          | Yes      | The base URL endpoint for the agent's A2A service (where JSON-RPC requests are sent). Must be an absolute URL (e.g., `https://agent.example.com/`).                                                         |
+| `provider`           | [`AgentProvider`](#52-agentprovider-object) \| `null`             | No       | Information about the organization providing the agent.                                                                                                                                                     |
+| `version`            | `string`                                                          | Yes      | Version string for the agent or its A2A implementation (format defined by provider, e.g., "1.0.0", "beta").                                                                                                 |
+| `documentationUrl`   | `string` \| `null`                                                | No       | URL pointing to human-readable documentation for the agent.                                                                                                                                                 |
+| `capabilities`       | [`AgentCapabilities`](#53-agentcapabilities-object)               | Yes      | Specifies optional features supported by the agent (streaming, push notifications, etc.).                                                                                                                   |
+| `authentication`     | [`AgentAuthentication`](#54-agentauthentication-object) \| `null` | No       | Authentication schemes required to interact with the agent. If `null` or omitted, no authentication is required (NOT recommended for production).                                                           |
+| `defaultInputModes`  | `string[]`                                                        | No       | Array of [MIME types](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) the agent generally accepts as input. Default: `["text/plain"]`. Example: `["text/plain", "image/png"]`. |
+| `defaultOutputModes` | `string[]`                                                        | No       | Array of MIME types the agent generally produces as output. Default: `["text/plain"]`. Example: `["text/plain", "application/json"]`.                                                                       |
+| `skills`             | [`AgentSkill[]`](#55-agentskill-object)                           | Yes      | An array of specific skills or capabilities the agent offers. Must contain at least one skill if the agent performs actions.                                                                                |
 
 ### 5.2. `AgentProvider` Object
 
@@ -102,26 +102,26 @@ Specifies optional protocol features supported by the agent.
 
 ### 5.4. `AgentAuthentication` Object
 
-Describes the authentication requirements for the agent, mirroring OpenAPI structure.
+Describes the authentication requirements for the agent, mirroring [OpenAPI Authentication Object](https://swagger.io/docs/specification/authentication/) structure conceptually.
 
-| Field Name    | Type               | Required | Description                                                                                                                                                                   |
-| :------------ | :----------------- | :------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schemes`     | `string[]`         | Yes      | Array of authentication scheme names supported/required (e.g., "Bearer", "Basic", "OAuth2").                                                                                  |
-| `credentials` | `string` \| `null` | No       | Optional field, potentially containing static credentials like an API key _if_ appropriate and secured. Usage is generally discouraged in favor of dynamic token acquisition. |
+| Field Name    | Type               | Required | Description                                                                                                                                                                     |
+| :------------ | :----------------- | :------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schemes`     | `string[]`         | Yes      | Array of authentication scheme names supported/required (e.g., "Bearer", "Basic", "OAuth2", "apiKey"). Standard names should be used where applicable.                          |
+| `credentials` | `string` \| `null` | No       | Optional field, potentially containing static credentials like an API key _if_ appropriate and if the Agent Card itself is adequately secured. Discouraged for dynamic secrets. |
 
 ### 5.5. `AgentSkill` Object
 
 Describes a specific capability or function the agent can perform.
 
-| Field Name    | Type                 | Required | Description                                                                              |
-| :------------ | :------------------- | :------- | :--------------------------------------------------------------------------------------- |
-| `id`          | `string`             | Yes      | A unique identifier for this skill within the agent (e.g., "currency-converter").        |
-| `name`        | `string`             | Yes      | Human-readable name of the skill (e.g., "Currency Conversion").                          |
-| `description` | `string` \| `null`   | No       | Detailed description of what the skill does. CommonMark MAY be used.                     |
-| `tags`        | `string[]` \| `null` | No       | Array of keywords for categorization (e.g., ["finance", "conversion"]).                  |
-| `examples`    | `string[]` \| `null` | No       | Array of example prompts or use cases for this skill (e.g., ["convert 100 USD to EUR"]). |
-| `inputModes`  | `string[]` \| `null` | No       | Overrides `defaultInputModes` specifically for this skill. If null, defaults apply.      |
-| `outputModes` | `string[]` \| `null` | No       | Overrides `defaultOutputModes` specifically for this skill. If null, defaults apply.     |
+| Field Name    | Type                 | Required | Description                                                                                         |
+| :------------ | :------------------- | :------- | :-------------------------------------------------------------------------------------------------- |
+| `id`          | `string`             | Yes      | A unique identifier for this skill within the agent (e.g., "currency-converter", "generate-image"). |
+| `name`        | `string`             | Yes      | Human-readable name of the skill (e.g., "Currency Conversion").                                     |
+| `description` | `string` \| `null`   | No       | Detailed description of what the skill does. [CommonMark](https://commonmark.org/) MAY be used.     |
+| `tags`        | `string[]` \| `null` | No       | Array of keywords for categorization (e.g., ["finance", "conversion", "image generation"]).         |
+| `examples`    | `string[]` \| `null` | No       | Array of example prompts or use cases for this skill (e.g., ["convert 100 USD to EUR"]).            |
+| `inputModes`  | `string[]` \| `null` | No       | Overrides `defaultInputModes` specifically for this skill. If `null` or omitted, defaults apply.    |
+| `outputModes` | `string[]` \| `null` | No       | Overrides `defaultOutputModes` specifically for this skill. If `null` or omitted, defaults apply.   |
 
 ## 6. Protocol Data Objects
 
@@ -131,52 +131,52 @@ These objects define the structure of data exchanged via JSON-RPC methods.
 
 Represents the stateful unit of work being processed by the agent.
 
-| Field Name  | Type                                          | Required | Description                                                                                                 |
-| :---------- | :-------------------------------------------- | :------- | :---------------------------------------------------------------------------------------------------------- |
-| `id`        | `string`                                      | Yes      | Unique identifier for the task, typically generated by the client.                                          |
-| `sessionId` | `string` \| `null`                            | No       | Optional client-generated identifier to group related tasks.                                                |
-| `status`    | [`TaskStatus`](#62-taskstatus-object)         | Yes      | The current status (state, message, timestamp) of the task.                                                 |
-| `artifacts` | [`Artifact[]`](#67-artifact-object) \| `null` | No       | Array of outputs generated by the agent for this task.                                                      |
-| `history`   | [`Message[]`](#64-message-object) \| `null`   | No       | Optional array of recent messages exchanged within this task, if requested via `historyLength`.             |
-| `metadata`  | `object` \| `null`                            | No       | Arbitrary key-value metadata associated with the task. Keys should be strings, values can be any JSON type. |
+| Field Name  | Type                                          | Required | Description                                                                                                                                      |
+| :---------- | :-------------------------------------------- | :------- | :----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`        | `string`                                      | Yes      | Unique identifier for the task, typically generated by the client. Should be sufficiently unique (e.g., UUID).                                   |
+| `sessionId` | `string` \| `null`                            | No       | Optional client-generated identifier to group related tasks.                                                                                     |
+| `status`    | [`TaskStatus`](#62-taskstatus-object)         | Yes      | The current status (state, message, timestamp) of the task.                                                                                      |
+| `artifacts` | [`Artifact[]`](#67-artifact-object) \| `null` | No       | Array of outputs generated by the agent for this task. Can be populated incrementally via streaming.                                             |
+| `history`   | [`Message[]`](#64-message-object) \| `null`   | No       | Optional array of recent messages exchanged within this task, ordered chronologically (oldest first). Included if requested via `historyLength`. |
+| `metadata`  | `object` \| `null`                            | No       | Arbitrary key-value metadata associated with the task. Keys SHOULD be strings, values can be any valid JSON type.                                |
 
 ### 6.2. `TaskStatus` Object
 
 Represents the current state and associated context of a `Task`.
 
-| Field Name  | Type                                             | Required | Description                                                                                                 |
-| :---------- | :----------------------------------------------- | :------- | :---------------------------------------------------------------------------------------------------------- |
-| `state`     | [`TaskState`](#63-taskstate-enum)                | Yes      | The current lifecycle state of the task.                                                                    |
-| `message`   | [`Message`](#64-message-object) \| `null`        | No       | An optional message associated with the current status (e.g., progress update, final result, input prompt). |
-| `timestamp` | `string` (ISO 8601 format `date-time`) \| `null` | No       | The date and time when this status was recorded.                                                            |
+| Field Name  | Type                                                                                                | Required | Description                                                                                                      |
+| :---------- | :-------------------------------------------------------------------------------------------------- | :------- | :--------------------------------------------------------------------------------------------------------------- |
+| `state`     | [`TaskState`](#63-taskstate-enum)                                                                   | Yes      | The current lifecycle state of the task.                                                                         |
+| `message`   | [`Message`](#64-message-object) \| `null`                                                           | No       | An optional message associated with the current status (e.g., progress update, final result text, input prompt). |
+| `timestamp` | `string` ([ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html) `date-time`) \| `null` | No       | The date and time (preferably in UTC) when this status was recorded. Example: `"2023-10-27T10:00:00Z"`.          |
 
 ### 6.3. `TaskState` Enum
 
 Defines the possible lifecycle states of a `Task`.
 
-| Value            | Description                                                         |
-| :--------------- | :------------------------------------------------------------------ |
-| `submitted`      | Task received by the server, but processing has not yet started.    |
-| `working`        | Task is actively being processed by the agent.                      |
-| `input-required` | Agent requires additional input from the client/user to proceed.    |
-| `completed`      | Task finished successfully.                                         |
-| `canceled`       | Task was canceled by the client or potentially by the server.       |
-| `failed`         | Task terminated due to an error during processing.                  |
-| `unknown`        | The state of the task cannot be determined (e.g., task ID invalid). |
+| Value            | Description                                                                                            | Terminal State? |
+| :--------------- | :----------------------------------------------------------------------------------------------------- | :-------------- |
+| `submitted`      | Task received by the server, but processing has not yet started.                                       | No              |
+| `working`        | Task is actively being processed by the agent.                                                         | No              |
+| `input-required` | Agent requires additional input from the client/user to proceed.                                       | No (Pause)      |
+| `completed`      | Task finished successfully.                                                                            | Yes             |
+| `canceled`       | Task was canceled by the client or potentially by the server.                                          | Yes             |
+| `failed`         | Task terminated due to an error during processing. The `TaskStatus.message` may contain error details. | Yes             |
+| `unknown`        | The state of the task cannot be determined (e.g., task ID invalid or expired).                         | Yes             |
 
 ### 6.4. `Message` Object
 
 Represents a single communication turn within a `Task`.
 
-| Field Name | Type                            | Required | Description                                                                                                    |
-| :--------- | :------------------------------ | :------- | :------------------------------------------------------------------------------------------------------------- |
-| `role`     | `"user"` \| `"agent"`           | Yes      | Indicates the sender: "user" for client messages, "agent" for server messages.                                 |
-| `parts`    | [`Part[]`](#65-part-union-type) | Yes      | An array containing the content of the message, broken down into one or more parts.                            |
-| `metadata` | `object` \| `null`              | No       | Arbitrary key-value metadata associated with the message. Keys should be strings, values can be any JSON type. |
+| Field Name | Type                            | Required | Description                                                                                                          |
+| :--------- | :------------------------------ | :------- | :------------------------------------------------------------------------------------------------------------------- |
+| `role`     | `"user"` \| `"agent"`           | Yes      | Indicates the sender: `"user"` for client messages, `"agent"` for server messages.                                   |
+| `parts`    | [`Part[]`](#65-part-union-type) | Yes      | An array containing the content of the message, broken down into one or more parts. Must contain at least one part.  |
+| `metadata` | `object` \| `null`              | No       | Arbitrary key-value metadata associated with the message. Keys SHOULD be strings, values can be any valid JSON type. |
 
 ### 6.5. `Part` Union Type
 
-Represents a distinct piece of content within a `Message` or `Artifact`. A `Part` object includes a `metadata` field (optional `object`) and is **one** of the following specific types identified by its `type` field:
+Represents a distinct piece of content within a `Message` or `Artifact`. A `Part` object includes an optional `metadata` field (`object` \| `null`) and is **one** of the following specific types identified by its mandatory `type` field:
 
 #### 6.5.1. `TextPart` Object
 
@@ -206,51 +206,51 @@ Represents a distinct piece of content within a `Message` or `Artifact`. A `Part
 
 Represents the data or reference for a file within a `FilePart`.
 
-| Field Name | Type               | Required | Description                                                               |
-| :--------- | :----------------- | :------- | :------------------------------------------------------------------------ |
-| `name`     | `string` \| `null` | No       | The original filename.                                                    |
-| `mimeType` | `string` \| `null` | No       | The MIME type of the file (e.g., "image/png", "application/pdf").         |
-| `bytes`    | `string` \| `null` | No       | Base64 encoded string of the file content. Mutually exclusive with `uri`. |
-| `uri`      | `string` \| `null` | No       | A URI pointing to the file content. Mutually exclusive with `bytes`.      |
+| Field Name | Type               | Required                       | Description                                                                                                                                                            |
+| :--------- | :----------------- | :----------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`     | `string` \| `null` | No                             | The original filename, if known (e.g., "report.pdf").                                                                                                                  |
+| `mimeType` | `string` \| `null` | No                             | The [MIME type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) of the file (e.g., "image/png", "application/pdf"). Strongly recommended. |
+| `bytes`    | `string` \| `null` | Conditionally (See Constraint) | Base64 encoded string of the raw file content.                                                                                                                         |
+| `uri`      | `string` \| `null` | Conditionally (See Constraint) | A URI (absolute URL preferred) pointing to the file content. The accessibility of the URI depends on the context between client and server.                            |
 
-_Constraint:_ Exactly one of `bytes` or `uri` MUST be provided if file content is intended. An empty `FileContent` object is permitted but discouraged.
+**Constraint:** Exactly one of `bytes` or `uri` MUST be provided if file content is present. Both MAY be `null` or absent if representing a file reference without immediate content.
 
 ### 6.7. `Artifact` Object
 
 Represents an output generated by the agent during a task.
 
-| Field Name    | Type                            | Required | Default | Description                                                                                                                                                                                    |
-| :------------ | :------------------------------ | :------- | :------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`        | `string` \| `null`              | No       |         | A descriptive name for the artifact (e.g., "report.pdf", "analysis_results").                                                                                                                  |
-| `description` | `string` \| `null`              | No       |         | A human-readable description of the artifact. CommonMark MAY be used.                                                                                                                          |
-| `parts`       | [`Part[]`](#65-part-union-type) | Yes      |         | An array containing the content of the artifact.                                                                                                                                               |
-| `index`       | `integer`                       | No       | `0`     | An index for ordering artifacts, especially useful for streaming updates to the same logical artifact.                                                                                         |
-| `append`      | `boolean` \| `null`             | No       |         | If `true` (used with streaming), indicates this artifact update should append its `parts` to the artifact at the same `index`. If `false` or `null`, it replaces the artifact at that `index`. |
-| `lastChunk`   | `boolean` \| `null`             | No       |         | If `true` (used with streaming), indicates this is the final update for the artifact at this `index`.                                                                                          |
-| `metadata`    | `object` \| `null`              | No       |         | Arbitrary key-value metadata associated with the artifact. Keys should be strings, values can be any JSON type.                                                                                |
+| Field Name    | Type                            | Required | Default | Description                                                                                                                                                                                  |
+| :------------ | :------------------------------ | :------- | :------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | `string` \| `null`              | No       | `null`  | A descriptive name for the artifact (e.g., "report.pdf", "analysis_results").                                                                                                                |
+| `description` | `string` \| `null`              | No       | `null`  | A human-readable description of the artifact. [CommonMark](https://commonmark.org/) MAY be used.                                                                                             |
+| `parts`       | [`Part[]`](#65-part-union-type) | Yes      |         | An array containing the content of the artifact. Must contain at least one part.                                                                                                             |
+| `index`       | `integer`                       | No       | `0`     | A non-negative index for ordering artifacts or identifying artifact chunks during streaming. Multiple artifacts can share the same index if they represent parts of the same logical output. |
+| `append`      | `boolean` \| `null`             | No       | `null`  | If `true` (used with streaming `TaskArtifactUpdateEvent`), indicates this update should append its `parts` to the artifact currently at the same `index`. If `false` or `null`, it replaces. |
+| `lastChunk`   | `boolean` \| `null`             | No       | `null`  | If `true` (used with streaming `TaskArtifactUpdateEvent`), indicates this is the final update for the artifact at this `index`. Useful for signaling the end of a streamed file or data.     |
+| `metadata`    | `object` \| `null`              | No       | `null`  | Arbitrary key-value metadata associated with the artifact. Keys SHOULD be strings, values can be any valid JSON type.                                                                        |
 
 ### 6.8. `PushNotificationConfig` Object
 
-Configuration for sending push notifications for a task. _(See [Push Notifications Topic](https://google.github.io/A2A/#/topics/push_notifications.md))_
+Configuration for sending push notifications for a task. _(See also [Push Notifications Topic](https://google.github.io/A2A/#/topics/push_notifications.md))_
 
-| Field Name       | Type                                                            | Required | Description                                                                                                                                                                 |
-| :--------------- | :-------------------------------------------------------------- | :------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `url`            | `string`                                                        | Yes      | The webhook URL where the A2A Server should POST task updates.                                                                                                              |
-| `token`          | `string` \| `null`                                              | No       | An optional, client-generated token (e.g., a secret or task-specific identifier) that the server SHOULD include in the notification request for validation by the receiver. |
-| `authentication` | [`AuthenticationInfo`](#69-authenticationinfo-object) \| `null` | No       | Authentication details the A2A Server needs to use when calling the `url`. The receiver (webhook endpoint) defines these requirements.                                      |
+| Field Name       | Type                                                            | Required | Description                                                                                                                                                                                                                          |
+| :--------------- | :-------------------------------------------------------------- | :------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`            | `string`                                                        | Yes      | The absolute HTTPS webhook URL where the A2A Server should POST task updates.                                                                                                                                                        |
+| `token`          | `string` \| `null`                                              | No       | An optional, client-generated opaque token (e.g., a secret or task-specific identifier) that the server SHOULD include in the notification request (e.g., in a header like `X-A2A-Token` or similar) for validation by the receiver. |
+| `authentication` | [`AuthenticationInfo`](#69-authenticationinfo-object) \| `null` | No       | Authentication details the A2A Server needs to use when calling the `url`. The receiver (webhook endpoint) defines these requirements (e.g., required `Bearer` token scope, expected signature).                                     |
 
 ### 6.9. `AuthenticationInfo` Object
 
-Generic structure for specifying authentication requirements, typically used within `PushNotificationConfig`.
+Generic structure for specifying authentication requirements, typically used within `PushNotificationConfig`. Mirrors [`AgentAuthentication`](#54-agentauthentication-object).
 
-| Field Name    | Type               | Required | Description                                                                             |
-| :------------ | :----------------- | :------- | :-------------------------------------------------------------------------------------- |
-| `schemes`     | `string[]`         | Yes      | Array of authentication scheme names the caller (A2A Server) must use (e.g., "Bearer"). |
-| `credentials` | `string` \| `null` | No       | Optional field for static credentials if applicable (usage depends on the scheme).      |
+| Field Name    | Type               | Required | Description                                                                                             |
+| :------------ | :----------------- | :------- | :------------------------------------------------------------------------------------------------------ |
+| `schemes`     | `string[]`         | Yes      | Array of authentication scheme names the caller (A2A Server in push context) must use (e.g., "Bearer"). |
+| `credentials` | `string` \| `null` | No       | Optional field for static credentials if applicable and secure (e.g., pre-shared secret for HMAC).      |
 
 ### 6.10. `TaskPushNotificationConfig` Object
 
-Used in [`tasks/pushNotification/set`](#75-taskspushnotificationset) and [`tasks/pushNotification/get`](#76-taskspushnotificationget) methods to associate a push configuration with a specific task.
+Used as `params` for [`tasks/pushNotification/set`](#75-taskspushnotificationset) and as `result` for [`tasks/pushNotification/get`](#76-taskspushnotificationget) methods to associate a push configuration with a specific task.
 
 | Field Name               | Type                                                          | Required | Description                                        |
 | :----------------------- | :------------------------------------------------------------ | :------- | :------------------------------------------------- |
@@ -259,149 +259,149 @@ Used in [`tasks/pushNotification/set`](#75-taskspushnotificationset) and [`tasks
 
 ### 6.11. JSON-RPC Structures
 
-A2A utilizes standard JSON-RPC 2.0 structures.
+A2A utilizes standard [JSON-RPC 2.0](https://www.jsonrpc.org/specification) structures.
 
-- **`JSONRPCRequest`**: Contains `jsonrpc: "2.0"`, `method` (string), `params` (object or array), and optional `id` (string \| number \| null). `id` should be present for requests expecting a response, null or absent for notifications.
-- **`JSONRPCResponse`**: Contains `jsonrpc: "2.0"`, `id` (matching request, required if request had one), and _either_ `result` (any JSON value, including null) _or_ `error` ([`JSONRPCError`](#612-jsonrpcerror-object)).
-- **`JSONRPCMessage`**: Base type, includes `jsonrpc: "2.0"` and optional `id`.
+- **`JSONRPCRequest`**: Contains `jsonrpc: "2.0"`, `method` (string, e.g., "tasks/send"), `params` (object or array containing method parameters), and optional `id` (string \| number \| null). `id` MUST be present for requests expecting a response, null or absent for notifications (though A2A currently uses request/response or streaming).
+- **`JSONRPCResponse`**: Contains `jsonrpc: "2.0"`, `id` (matching request `id`, MUST be present if request had one), and **either** `result` (any JSON value, including `null`, representing success) **or** `error` ([`JSONRPCError`](#612-jsonrpcerror-object) object, representing failure). `result` and `error` are mutually exclusive.
+- **`JSONRPCMessage`**: A base type definition in the schema, mainly for structure, encompassing `jsonrpc: "2.0"` and optional `id`.
 
 ### 6.12. `JSONRPCError` Object
 
-Standard JSON-RPC error structure used in responses when a request fails.
+Standard JSON-RPC error structure used in the `error` field of a `JSONRPCResponse` when a request fails.
 
-| Field Name | Type            | Required | Description                                                             |
-| :--------- | :-------------- | :------- | :---------------------------------------------------------------------- |
-| `code`     | `integer`       | Yes      | A number indicating the error type. See [Section 8](#8-error-handling). |
-| `message`  | `string`        | Yes      | A short, human-readable summary of the error.                           |
-| `data`     | `any` \| `null` | No       | Optional additional details about the error.                            |
+| Field Name | Type            | Required | Description                                                                                                            |
+| :--------- | :-------------- | :------- | :--------------------------------------------------------------------------------------------------------------------- |
+| `code`     | `integer`       | Yes      | A number indicating the error type. See [Section 8: Error Handling](#8-error-handling).                                |
+| `message`  | `string`        | Yes      | A short, human-readable summary of the error.                                                                          |
+| `data`     | `any` \| `null` | No       | Optional field containing additional, structured details about the error (format is defined by the error code/server). |
 
 ## 7. Protocol RPC Methods
 
-All methods are invoked via HTTP POST requests to the agent's `url` specified in its `AgentCard`. The request body MUST be a `JSONRPCRequest` object, and the response body MUST be a `JSONRPCResponse` object (or an SSE stream of them for subscribe methods).
+All methods are invoked via HTTP POST requests to the agent's `url` specified in its `AgentCard`. The request `Content-Type` MUST be `application/json`. The request body MUST be a `JSONRPCRequest` object, and the response body MUST be a `JSONRPCResponse` object (or an SSE stream of them for subscribe methods), also with `Content-Type: application/json` (except for SSE which is `text/event-stream`).
 
 ### 7.1. `tasks/send`
 
-**Description:** Sends a message to initiate or continue a task. Used for synchronous request/response interactions or as part of a polling mechanism for long-running tasks.
+**Description:** Sends a message to initiate or continue a task. Used for synchronous request/response interactions or when polling is acceptable for longer tasks.
 
 - **Request `params`**: [`TaskSendParams`](#711-tasksendparams-object)
-- **Response `result`**: [`Task`](#61-task-object) object representing the final state of the task _after_ processing this message synchronously.
-- **Response `error`**: [`JSONRPCError`](#612-jsonrpcerror-object) if the request fails.
+- **Response `result`**: [`Task`](#61-task-object) object representing the state of the task _after_ processing this message. If the task completes synchronously, this is the final state. If it's still `working` or `submitted`, the client may need to poll or use other mechanisms.
+- **Response `error`**: [`JSONRPCError`](#612-jsonrpcerror-object) if the request fails (e.g., invalid params, auth error, internal error).
 
 #### 7.1.1. `TaskSendParams` Object
 
-| Field Name         | Type                                                                    | Required | Description                                                                                                                                      |
-| :----------------- | :---------------------------------------------------------------------- | :------- | :----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`               | `string`                                                                | Yes      | The ID of the task to send the message to. If the task doesn't exist, the server typically creates it with this ID.                              |
-| `sessionId`        | `string` \| `null`                                                      | No       | Optional client-generated ID to group this task with others. If omitted for a new task, the server might generate one internally.                |
-| `message`          | [`Message`](#64-message-object)                                         | Yes      | The message content to send (e.g., initial user query, response to an `input-required` prompt).                                                  |
-| `pushNotification` | [`PushNotificationConfig`](#68-pushnotificationconfig-object) \| `null` | No       | Optional. If provided when initiating a task, sets the push notification configuration. May update config for existing tasks (server dependent). |
-| `historyLength`    | `integer` \| `null`                                                     | No       | If provided and non-zero, requests the server to include up to the last N messages in the `history` field of the returned `Task` object.         |
-| `metadata`         | `object` \| `null`                                                      | No       | Arbitrary metadata associated with this specific `tasks/send` request.                                                                           |
+| Field Name         | Type                                                                    | Required | Description                                                                                                                                                                                                                         |
+| :----------------- | :---------------------------------------------------------------------- | :------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`               | `string`                                                                | Yes      | The ID for the task. If the task doesn't exist on the server, it SHOULD be created with this ID. If it exists, this message continues the task.                                                                                     |
+| `sessionId`        | `string` \| `null`                                                      | No       | Optional client-generated ID to group this task with others. If omitted for a new task, the server MAY generate one internally but is not required to expose it.                                                                    |
+| `message`          | [`Message`](#64-message-object)                                         | Yes      | The message content to send (e.g., initial user query, response to an `input-required` prompt). `role` should typically be "user".                                                                                                  |
+| `pushNotification` | [`PushNotificationConfig`](#68-pushnotificationconfig-object) \| `null` | No       | Optional. If provided when initiating a task (first `tasks/send` for a given `id`), attempts to set the push notification configuration. Behavior on subsequent calls is server-dependent (might update or ignore).                 |
+| `historyLength`    | `integer` \| `null`                                                     | No       | If provided and positive, requests the server to include up to this many of the most recent [`Message`](#64-message-object) objects in the `history` field of the returned `Task` object. `0` or `null` means no history requested. |
+| `metadata`         | `object` \| `null`                                                      | No       | Arbitrary metadata associated with this specific `tasks/send` request.                                                                                                                                                              |
 
 ### 7.2. `tasks/sendSubscribe`
 
-**Description:** Sends a message to initiate or continue a task and subscribes the client to receive real-time updates for that task via Server-Sent Events (SSE). Requires the server to have the `streaming` capability enabled in its `AgentCard`.
+**Description:** Sends a message to initiate or continue a task AND subscribes the client to receive real-time updates (status changes, artifacts) for that task via Server-Sent Events (SSE). Requires the server to have the `streaming: true` capability in its [`AgentCard`](#51-agentcard-object).
 
 - **Request `params`**: [`TaskSendParams`](#711-tasksendparams-object)
 - **Response**:
-  - **Success**: An HTTP 2xx response with `Content-Type: text/event-stream`. The body contains a stream of SSE messages. Each message's `data` field holds a [`SendTaskStreamingResponse`](#721-sendtaskstreamingresponse-object) JSON object.
-  - **Failure**: A standard HTTP error response (e.g., 4xx, 5xx) with a `JSONRPCResponse` body containing an `error` field if the initial request fails immediately.
+  - **Success**: An HTTP `200 OK` response with `Content-Type: text/event-stream`. The response body contains a stream of SSE messages. Each message's `data` field holds a [`SendTaskStreamingResponse`](#721-sendtaskstreamingresponse-object) JSON object. The connection remains open until the server sends a final event or the connection is closed.
+  - **Failure**: A standard HTTP error response (e.g., 4xx, 5xx) if the initial subscription request fails immediately (e.g., invalid params, auth error, streaming not supported). The body MAY contain a `JSONRPCResponse` with details in the `error` field.
 
-#### 7.2.1. `SendTaskStreamingResponse` Object (SSE Event Data)
+#### 7.2.1. `SendTaskStreamingResponse` Object
 
-This is a standard `JSONRPCResponse` structure used within the SSE stream.
+This is a standard `JSONRPCResponse` structure used as the content of the `data` field in each SSE message.
 
-| Field Name | Type                                                                                                                                            | Required | Description                                                          |
-| :--------- | :---------------------------------------------------------------------------------------------------------------------------------------------- | :------- | :------------------------------------------------------------------- |
-| `jsonrpc`  | `"2.0"`                                                                                                                                         | Yes      | JSON-RPC version.                                                    |
-| `id`       | `string` \| `number`                                                                                                                            | Yes      | Matches the `id` of the corresponding `tasks/sendSubscribe` request. |
-| `result`   | **Either** [`TaskStatusUpdateEvent`](#722-taskstatusupdateevent-object) **or** [`TaskArtifactUpdateEvent`](#723-taskartifactupdateevent-object) | Yes      | Contains the task status update or artifact data.                    |
-| `error`    | [`JSONRPCError`](#612-jsonrpcerror-object) \| `null`                                                                                            | No       | Present if an error occurs during stream processing.                 |
+| Field Name | Type                                                                                                                                            | Required | Description                                                                                                                                                      |
+| :--------- | :---------------------------------------------------------------------------------------------------------------------------------------------- | :------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jsonrpc`  | `"2.0"`                                                                                                                                         | Yes      | JSON-RPC version.                                                                                                                                                |
+| `id`       | `string` \| `number`                                                                                                                            | Yes      | Matches the `id` from the originating `tasks/sendSubscribe` request this stream corresponds to.                                                                  |
+| `result`   | **Either** [`TaskStatusUpdateEvent`](#722-taskstatusupdateevent-object) **or** [`TaskArtifactUpdateEvent`](#723-taskartifactupdateevent-object) | Yes      | Contains the task status update or artifact data payload for this event.                                                                                         |
+| `error`    | [`JSONRPCError`](#612-jsonrpcerror-object) \| `null`                                                                                            | No       | Should generally be `null` for stream events. If a fatal error occurs during streaming, the server MAY send an event with `error` set and then close the stream. |
 
 #### 7.2.2. `TaskStatusUpdateEvent` Object
 
 Carries information about a change in the task's status during streaming.
 
-| Field Name | Type                                  | Required | Default | Description                                                                                                                                                                                                                                                                  |
-| :--------- | :------------------------------------ | :------- | :------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`       | `string`                              | Yes      |         | The ID of the task being updated.                                                                                                                                                                                                                                            |
-| `status`   | [`TaskStatus`](#62-taskstatus-object) | Yes      |         | The new status object for the task.                                                                                                                                                                                                                                          |
-| `final`    | `boolean`                             | No       | `false` | If `true`, indicates this is the terminal status update for this specific `tasks/sendSubscribe` interaction cycle (e.g., the task reached `completed`, `failed`, `canceled`, or `input-required`). Further interactions require a new `tasks/send` or `tasks/sendSubscribe`. |
-| `metadata` | `object` \| `null`                    | No       |         | Arbitrary metadata associated with this specific status update event.                                                                                                                                                                                                        |
+| Field Name | Type                                  | Required | Default | Description                                                                                                                                                                                                                                                                                                               |
+| :--------- | :------------------------------------ | :------- | :------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`       | `string`                              | Yes      |         | The ID of the task being updated (matches `TaskSendParams.id`).                                                                                                                                                                                                                                                           |
+| `status`   | [`TaskStatus`](#62-taskstatus-object) | Yes      |         | The new status object for the task, including the `state` and potentially a `message` and `timestamp`.                                                                                                                                                                                                                    |
+| `final`    | `boolean`                             | No       | `false` | If `true`, indicates this is the terminal status update for this specific `tasks/sendSubscribe` interaction cycle. The task has reached a state (`completed`, `failed`, `canceled`, or `input-required`) where no further updates will be sent on this stream. The server typically closes the stream after sending this. |
+| `metadata` | `object` \| `null`                    | No       | `null`  | Arbitrary metadata associated with this specific status update event.                                                                                                                                                                                                                                                     |
 
 #### 7.2.3. `TaskArtifactUpdateEvent` Object
 
 Carries a new or updated artifact generated during streaming.
 
-| Field Name | Type                              | Required | Description                                                                                                                      |
-| :--------- | :-------------------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------------- |
-| `id`       | `string`                          | Yes      | The ID of the task that generated the artifact.                                                                                  |
-| `artifact` | [`Artifact`](#67-artifact-object) | Yes      | The artifact data. This could be a complete artifact or a chunk for incremental delivery (using `index`, `append`, `lastChunk`). |
-| `metadata` | `object` \| `null`                | No       | Arbitrary metadata associated with this specific artifact update event.                                                          |
+| Field Name | Type                              | Required | Description                                                                                                                                                                            |
+| :--------- | :-------------------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`       | `string`                          | Yes      | The ID of the task that generated the artifact (matches `TaskSendParams.id`).                                                                                                          |
+| `artifact` | [`Artifact`](#67-artifact-object) | Yes      | The artifact data. This could be a complete artifact or an incremental chunk. Use `artifact.index`, `artifact.append`, and `artifact.lastChunk` to manage assembly on the client side. |
+| `metadata` | `object` \| `null`                | No       | Arbitrary metadata associated with this specific artifact update event.                                                                                                                |
 
 ### 7.3. `tasks/get`
 
-**Description:** Retrieves the current state, including status and any generated artifacts, of a specific task. Useful for polling or fetching the final result after a notification.
+**Description:** Retrieves the current state, including status and any generated artifacts, of a specific task. Useful for polling, fetching the final result after receiving a push notification, or getting the complete state after a streaming session ends.
 
 - **Request `params`**: [`TaskQueryParams`](#731-taskqueryparams-object)
-- **Response `result`**: [`Task`](#61-task-object) object representing the current snapshot of the task.
-- **Response `error`**: [`JSONRPCError`](#612-jsonrpcerror-object), e.g., [`TaskNotFoundError`](#82-a2a-specific-errors) if the task ID is invalid or expired.
+- **Response `result`**: [`Task`](#61-task-object) object representing the current snapshot of the task. Includes `artifacts` generated so far.
+- **Response `error`**: [`JSONRPCError`](#612-jsonrpcerror-object), e.g., [`TaskNotFoundError`](#82-a2a-specific-errors) if the task `id` is invalid or has expired according to server policy.
 
 #### 7.3.1. `TaskQueryParams` Object
 
-| Field Name      | Type                | Required | Description                                                                                                                       |
-| :-------------- | :------------------ | :------- | :-------------------------------------------------------------------------------------------------------------------------------- |
-| `id`            | `string`            | Yes      | The ID of the task to retrieve.                                                                                                   |
-| `historyLength` | `integer` \| `null` | No       | If provided and non-zero, requests the server to include up to the last N messages in the `history` field of the returned `Task`. |
-| `metadata`      | `object` \| `null`  | No       | Arbitrary metadata associated with this specific `tasks/get` request.                                                             |
+| Field Name      | Type                | Required | Description                                                                                                                                                                                         |
+| :-------------- | :------------------ | :------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`            | `string`            | Yes      | The ID of the task to retrieve.                                                                                                                                                                     |
+| `historyLength` | `integer` \| `null` | No       | If provided and positive, requests the server include up to this many recent [`Message`](#64-message-object) objects in the `history` field of the returned `Task`. `0` or `null` means no history. |
+| `metadata`      | `object` \| `null`  | No       | Arbitrary metadata associated with this specific `tasks/get` request.                                                                                                                               |
 
 ### 7.4. `tasks/cancel`
 
-**Description:** Requests the cancellation of an ongoing task. Success is not guaranteed (e.g., the task might complete before the cancellation is processed).
+**Description:** Requests the cancellation of an ongoing task (i.e., a task not already in a terminal state). Success is not guaranteed; the task might complete or fail before the cancellation request is processed.
 
 - **Request `params`**: [`TaskIdParams`](#741-taskidparams-object)
-- **Response `result`**: [`Task`](#61-task-object) object reflecting the state after the cancellation request (ideally `state: "canceled"`).
-- **Response `error`**: [`JSONRPCError`](#612-jsonrpcerror-object), e.g., [`TaskNotFoundError`](#82-a2a-specific-errors) or [`TaskNotCancelableError`](#82-a2a-specific-errors).
+- **Response `result`**: [`Task`](#61-task-object) object reflecting the state after the cancellation attempt. Ideally, `status.state` will be `"canceled"`, but it might reflect another terminal state if cancellation was too late or unsuccessful.
+- **Response `error`**: [`JSONRPCError`](#612-jsonrpcerror-object), e.g., [`TaskNotFoundError`](#82-a2a-specific-errors) or [`TaskNotCancelableError`](#82-a2a-specific-errors) (if task was already terminal).
 
 #### 7.4.1. `TaskIdParams` Object
 
-| Field Name | Type               | Required | Description                              |
-| :--------- | :----------------- | :------- | :--------------------------------------- |
-| `id`       | `string`           | Yes      | The ID of the task to attempt to cancel. |
-| `metadata` | `object` \| `null` | No       | Arbitrary metadata for this request.     |
+| Field Name | Type               | Required | Description                                 |
+| :--------- | :----------------- | :------- | :------------------------------------------ |
+| `id`       | `string`           | Yes      | The ID of the task to attempt to cancel.    |
+| `metadata` | `object` \| `null` | No       | Arbitrary metadata for this cancel request. |
 
 ### 7.5. `tasks/pushNotification/set`
 
-**Description:** Sets or updates the push notification configuration for a specific task. Allows the server to send updates to a webhook when the client is disconnected. Requires the server to have the `pushNotifications` capability enabled.
+**Description:** Sets or updates the push notification configuration for a specific task. This tells the server where and how to send an update (webhook) when the task reaches a significant state change (typically a terminal state or `input-required`) while the client is disconnected. Requires the server to have the `pushNotifications: true` capability.
 
 - **Request `params`**: [`TaskPushNotificationConfig`](#610-taskpushnotificationconfig-object)
-- **Response `result`**: [`TaskPushNotificationConfig`](#610-taskpushnotificationconfig-object) confirming the configuration that was set (server MAY omit sensitive details like tokens).
-- **Response `error`**: [`JSONRPCError`](#612-jsonrpcerror-object), e.g., [`PushNotificationNotSupportedError`](#82-a2a-specific-errors), [`TaskNotFoundError`](#82-a2a-specific-errors).
+- **Response `result`**: [`TaskPushNotificationConfig`](#610-taskpushnotificationconfig-object) confirming the configuration that was set. The server MAY omit sensitive details like secrets from the response for security.
+- **Response `error`**: [`JSONRPCError`](#612-jsonrpcerror-object), e.g., [`PushNotificationNotSupportedError`](#82-a2a-specific-errors), [`TaskNotFoundError`](#82-a2a-specific-errors), or errors related to validating the push config (e.g., invalid URL, unsupported auth).
 
 ### 7.6. `tasks/pushNotification/get`
 
-**Description:** Retrieves the currently configured push notification settings for a specific task. Requires the server to have the `pushNotifications` capability enabled.
+**Description:** Retrieves the currently configured push notification settings for a specific task. Requires the server to have the `pushNotifications: true` capability.
 
 - **Request `params`**: [`TaskIdParams`](#741-taskidparams-object)
-- **Response `result`**: [`TaskPushNotificationConfig`](#610-taskpushnotificationconfig-object) containing the current configuration (or null/empty if none is set). Server MAY omit sensitive details.
+- **Response `result`**: [`TaskPushNotificationConfig`](#610-taskpushnotificationconfig-object) containing the current configuration. Returns `null` or an empty object if no configuration is set for the task. The server MAY omit sensitive details like secrets.
 - **Response `error`**: [`JSONRPCError`](#612-jsonrpcerror-object), e.g., [`PushNotificationNotSupportedError`](#82-a2a-specific-errors), [`TaskNotFoundError`](#82-a2a-specific-errors).
 
 ### 7.7. `tasks/resubscribe`
 
-**Description:** Allows a client to reconnect to the SSE stream for an ongoing task after a network interruption or disconnection. Requires the server to have the `streaming` capability enabled.
+**Description:** Allows a client to reconnect to the SSE stream for an ongoing task after a network interruption or disconnection. Useful if the client detects a broken SSE connection for a task that hasn't reached a `final: true` state. Requires the server to have the `streaming: true` capability.
 
-- **Request `params`**: [`TaskQueryParams`](#731-taskqueryparams-object) (Note: `historyLength` might be ignored on resubscribe).
+- **Request `params`**: [`TaskQueryParams`](#731-taskqueryparams-object) (Note: `historyLength` is typically ignored on resubscribe, as the focus is on future events).
 - **Response**:
-  - **Success**: An HTTP 2xx response with `Content-Type: text/event-stream`. The body contains a stream of subsequent SSE messages for the task. Each message's `data` field holds a [`SendTaskStreamingResponse`](#721-sendtaskstreamingresponse-object) JSON object. The server's behavior regarding missed events is implementation-dependent (it might replay some state or simply resume with new updates).
-  - **Failure**: A standard HTTP error response (e.g., 4xx, 5xx) with a `JSONRPCResponse` body containing an `error` field (e.g., `TaskNotFoundError`, streaming not supported for task).
+  - **Success**: An HTTP `200 OK` response with `Content-Type: text/event-stream`. The body contains a stream of _subsequent_ SSE messages for the task, each containing a [`SendTaskStreamingResponse`](#721-sendtaskstreamingresponse-object). The server's behavior regarding events missed during disconnection is implementation-dependent (it might replay some key state/artifacts or simply resume with new updates from the point of resubscription).
+  - **Failure**: A standard HTTP error response (e.g., 4xx, 5xx) if resubscription fails (e.g., `TaskNotFoundError`, streaming no longer active/supported for task, auth error). The body MAY contain a `JSONRPCResponse` with `error` details.
 
 ## 8. Error Handling
 
-A2A uses standard JSON-RPC error codes, plus defines custom codes for protocol-specific errors. Errors are returned in the `error` field of a `JSONRPCResponse`. See [`JSONRPCError` Object](#612-jsonrpcerror-object).
+A2A uses standard [JSON-RPC 2.0 error codes](https://www.jsonrpc.org/specification#error_object), plus defines custom codes (in the server error range `-32000` to `-32099`) for protocol-specific errors. Errors are returned in the `error` field of a `JSONRPCResponse`. See [`JSONRPCError` Object](#612-jsonrpcerror-object).
 
 ### 8.1. Standard JSON-RPC Errors
 
-| Code                 | Constant (`a2a.json` Title) | Message                          | Description                                                  |
+| Code                 | Constant (`a2a.json` Title) | Default Message                  | Description                                                  |
 | :------------------- | :-------------------------- | :------------------------------- | :----------------------------------------------------------- |
 | `-32700`             | `JSONParseError`            | Invalid JSON payload             | Server received invalid JSON.                                |
 | `-32600`             | `InvalidRequestError`       | Request payload validation error | JSON is valid, but not a valid JSON-RPC Request object.      |
@@ -412,21 +412,23 @@ A2A uses standard JSON-RPC error codes, plus defines custom codes for protocol-s
 
 ### 8.2. A2A Specific Errors
 
-| Code     | Constant (`a2a.json` Title)         | Message                            | Description                                                                      |
-| :------- | :---------------------------------- | :--------------------------------- | :------------------------------------------------------------------------------- |
-| `-32001` | `TaskNotFoundError`                 | Task not found                     | The specified task `id` was not found on the server.                             |
-| `-32002` | `TaskNotCancelableError`            | Task cannot be canceled            | The task is already in a terminal state (`completed`, `failed`, `canceled`).     |
-| `-32003` | `PushNotificationNotSupportedError` | Push Notification is not supported | The server agent does not support the push notification feature.                 |
-| `-32004` | `UnsupportedOperationError`         | This operation is not supported    | The requested high-level operation or capability is not supported by the agent.  |
-| `-32005` | `ContentTypeNotSupportedError`      | Incompatible content types         | A content type in the request is not supported by the agent or the target skill. |
+These use codes within the `-32000` to `-32099` range.
+
+| Code     | Constant (`a2a.json` Title)         | Default Message                    | Description                                                                                                                                                                            |
+| :------- | :---------------------------------- | :--------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-32001` | `TaskNotFoundError`                 | Task not found                     | The specified task `id` was not found on the server or has expired.                                                                                                                    |
+| `-32002` | `TaskNotCancelableError`            | Task cannot be canceled            | The task is already in a terminal state (`completed`, `failed`, `canceled`).                                                                                                           |
+| `-32003` | `PushNotificationNotSupportedError` | Push Notification is not supported | The server agent does not support the push notification feature (`pushNotifications: false`).                                                                                          |
+| `-32004` | `UnsupportedOperationError`         | This operation is not supported    | The requested high-level operation or capability (perhaps implied by parameters) is not supported by the agent.                                                                        |
+| `-32005` | `ContentTypeNotSupportedError`      | Incompatible content types         | A content [MIME type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) in the request `message.parts` is not supported by the agent or the targeted skill. |
 
 ## 9. Common Workflows & Examples
 
-_(Note: Timestamps and session IDs in examples are illustrative)_
+> Note: Timestamps, session IDs, and request IDs in examples are illustrative
 
-### 9.1. Basic Task Execution (Synchronous / Polling)
+### 9.1. Basic Task Execution (Synchronous / Polling Style)
 
-1.  **Client -> Server:** Send `tasks/send` request with initial message and new `taskId`.
+1.  **Client -> Server:** Send `tasks/send` request with initial message and a new `taskId`.
 
     ```json
     {
@@ -434,7 +436,7 @@ _(Note: Timestamps and session IDs in examples are illustrative)_
       "id": 101,
       "method": "tasks/send",
       "params": {
-        "id": "task-abc-123",
+        "id": "task-uuid-12345",
         "message": {
           "role": "user",
           "parts": [
@@ -445,18 +447,18 @@ _(Note: Timestamps and session IDs in examples are illustrative)_
     }
     ```
 
-2.  **Server -> Client:** Server processes synchronously and returns the final `Task` object.
+2.  **Server -> Client:** Server processes synchronously (as it's a quick task) and returns the final `Task` object.
 
     ```json
     {
       "jsonrpc": "2.0",
       "id": 101,
       "result": {
-        "id": "task-abc-123",
-        "sessionId": "session-xyz-789",
+        "id": "task-uuid-12345",
+        "sessionId": "session-uuid-67890",
         "status": {
           "state": "completed",
-          "timestamp": "2024-10-27T10:00:00Z"
+          "timestamp": "2024-10-27T10:00:05Z"
         },
         "artifacts": [
           {
@@ -472,7 +474,7 @@ _(Note: Timestamps and session IDs in examples are illustrative)_
     }
     ```
 
-    _(Alternatively, for long tasks, the server might immediately return `state: "working"`, and the client would later poll using `tasks/get` with `id: "task-abc-123"`)_
+    _(Alternatively, for long tasks, the server might immediately return `status.state: "working"`. The client would then periodically call `tasks/get` with `id: "task-uuid-12345"` until the state becomes terminal.)_
 
 ### 9.2. Streaming Task Execution
 
@@ -484,52 +486,51 @@ _(Note: Timestamps and session IDs in examples are illustrative)_
       "id": 201,
       "method": "tasks/sendSubscribe",
       "params": {
-        "id": "task-stream-456",
+        "id": "task-stream-abc",
         "message": {
           "role": "user",
           "parts": [
-            { "type": "text", "text": "Write a short story about a robot." }
+            { "type": "text", "text": "Write a short story about a robot exploring Mars." }
           ]
         }
       }
     }
     ```
 
-2.  **Server -> Client (SSE Stream):** Server sends multiple `SendTaskStreamingResponse` events over HTTP `text/event-stream`.
+2.  **Server -> Client (SSE Stream):** Server responds with HTTP 200 and `Content-Type: text/event-stream`, then sends multiple `SendTaskStreamingResponse` events.
 
     ```sse
-    id: 201
-    event: message
-    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-456","status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Okay, starting the story..."}],"metadata":null},"timestamp":"2024-10-27T10:05:01Z"},"final":false,"metadata":null}}
+    id: 201-1
+    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-abc","status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Okay, drafting a story..."}],"metadata":null},"timestamp":"2024-10-27T10:05:01Z"},"final":false,"metadata":null}}
 
-    id: 201
-    event: message
-    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-456","artifact":{"name":null,"description":null,"parts":[{"type":"text","text":"Unit 734 booted up. ","metadata":null}],"index":0,"append":false,"lastChunk":false,"metadata":null},"metadata":null}}
+    id: 201-2
+    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-abc","artifact":{"name":"story_chunk_1","description":null,"parts":[{"type":"text","text":"Unit 734 rolled across the red dust. ","metadata":null}],"index":0,"append":false,"lastChunk":false,"metadata":null},"metadata":null}}
 
-    id: 201
-    event: message
-    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-456","artifact":{"name":null,"description":null,"parts":[{"type":"text","text":"Its optical sensors scanned the desolate landscape...","metadata":null}],"index":0,"append":true,"lastChunk":false,"metadata":null},"metadata":null}}
+    id: 201-3
+    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-abc","artifact":{"name":"story_chunk_2","description":null,"parts":[{"type":"text","text":"Olympus Mons loomed in the distance...","metadata":null}],"index":0,"append":true,"lastChunk":false,"metadata":null},"metadata":null}}
 
-    id: 201
-    event: message
-    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-456","artifact":{"name":null,"description":null,"parts":[{"type":"text","text":" It missed the rain.","metadata":null}],"index":0,"append":true,"lastChunk":true,"metadata":null},"metadata":null}}
+    id: 201-4
+    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-abc","artifact":{"name":"story_chunk_3","description":null,"parts":[{"type":"text","text":" a lonely vigil.","metadata":null}],"index":0,"append":true,"lastChunk":true,"metadata":null},"metadata":null}}
 
-    id: 201
-    event: message
-    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-456","status":{"state":"completed","message":null,"timestamp":"2024-10-27T10:05:05Z"},"final":true,"metadata":null}}
+    id: 201-5
+    data: {"jsonrpc":"2.0","id":201,"result":{"id":"task-stream-abc","status":{"state":"completed","message":null,"timestamp":"2024-10-27T10:05:05Z"},"final":true,"metadata":null}}
+
     ```
+
+    _(Note: The `id` field in the SSE message (`201-1`, `201-2`, etc.) is the SSE event ID, distinct from the JSON-RPC `id` field inside the `data` payload (`201`))._
 
 ### 9.3. Multi-Turn Interaction (Input Required)
 
-1.  **Client -> Server:** Initial `tasks/send` (or `tasks/sendSubscribe`).
+1.  **Client -> Server:** Initial `tasks/send`.
 
     ```json
+    // Request Body
     {
       "jsonrpc": "2.0",
       "id": 301,
       "method": "tasks/send",
       "params": {
-        "id": "task-multi-789",
+        "id": "task-booking-xyz",
         "message": {
           "role": "user",
           "parts": [{ "type": "text", "text": "Book a flight for me." }]
@@ -538,22 +539,26 @@ _(Note: Timestamps and session IDs in examples are illustrative)_
     }
     ```
 
-2.  **Server -> Client:** Server requires input, responds with `state: "input-required"`.
+2.  **Server -> Client:** Server requires input, responds with `status.state: "input-required"`.
 
     ```json
+    // Response Body
     {
       "jsonrpc": "2.0",
       "id": 301,
       "result": {
-        "id": "task-multi-789",
-        "sessionId": "session-abc-123",
+        "id": "task-booking-xyz",
+        "sessionId": "session-def-456",
         "status": {
           "state": "input-required",
           "timestamp": "2024-10-27T10:10:00Z",
           "message": {
             "role": "agent",
             "parts": [
-              { "type": "text", "text": "Where would you like to fly to?" }
+              {
+                "type": "text",
+                "text": "Sure, where would you like to fly to and on what date?"
+              }
             ],
             "metadata": null
           }
@@ -565,72 +570,88 @@ _(Note: Timestamps and session IDs in examples are illustrative)_
     }
     ```
 
-    _(If using streaming, this status update would arrive in a `TaskStatusUpdateEvent` with `final: true`)_
+    _(If using `tasks/sendSubscribe`, this status update would arrive in a `TaskStatusUpdateEvent` with `final: true`)_
 
-3.  **Client -> Server:** Client provides the requested input using the _same_ `taskId`.
+3.  **Client -> Server:** Client provides the requested input using the _same_ `id` from `params`.
 
     ```json
+    // Request Body
     {
       "jsonrpc": "2.0",
-      "id": 302,
-      "method": "tasks/send",
+      "id": 302, // New request ID
+      "method": "tasks/send", // Or tasks/sendSubscribe if more streaming is expected
       "params": {
-        "id": "task-multi-789",
-        "sessionId": "session-abc-123",
+        "id": "task-booking-xyz", // SAME task ID
+        "sessionId": "session-def-456", // SAME session ID if applicable
         "message": {
           "role": "user",
-          "parts": [{ "type": "text", "text": "Paris" }]
+          "parts": [{ "type": "text", "text": "To London, tomorrow." }]
         }
       }
     }
     ```
 
-    _(Could also use `tasks/sendSubscribe` again to continue streaming if needed)_
-
-4.  **Server -> Client:** Server proceeds and eventually completes (or asks for more input).
+4.  **Server -> Client:** Server proceeds and eventually completes (or asks for more input, e.g., preferred airline). Response depends on whether `tasks/send` or `tasks/sendSubscribe` was used in step 3. If `tasks/send`:
 
     ```json
+    // Response Body
     {
       "jsonrpc": "2.0",
       "id": 302,
       "result": {
-        "id": "task-multi-789",
-        "sessionId": "session-abc-123",
-        "status": { "state": "completed" /*...*/ },
+        "id": "task-booking-xyz",
+        "sessionId": "session-def-456",
+        "status": {
+          "state": "completed",
+          "timestamp": "2024-10-27T10:11:00Z"
+        },
         "artifacts": [
-          /* ... flight confirmation details ... */
+          {
+            "index": 0,
+            "name": "booking_confirmation",
+            "parts": [
+              {
+                "type": "data",
+                "data": { "confirmationId": "LHR-XYZ123", "details": "..." }
+              }
+            ]
+          }
         ]
         /*...*/
       }
     }
     ```
 
-    _(Or via an SSE stream if `tasks/sendSubscribe` was used in step 3)_
-
 ### 9.4. Push Notification Setup and Usage
 
-1.  **Client -> Server:** Initiate a task and set notification config simultaneously using `tasks/send`.
+1.  **Client -> Server:** Initiate a long-running task and set notification config using `tasks/send` (or `tasks/pushNotification/set` separately).
 
     ```json
+    // Request Body
     {
       "jsonrpc": "2.0",
       "id": 401,
       "method": "tasks/send",
       "params": {
-        "id": "task-long-run-101",
+        "id": "task-report-gen-777",
         "message": {
           "role": "user",
           "parts": [
             {
               "type": "text",
-              "text": "Generate the quarterly sales report. Notify me when done."
+              "text": "Generate the quarterly sales report. It might take a while, notify my webhook when done."
             }
           ]
         },
         "pushNotification": {
-          "url": "https://client.example.com/a2a_webhook",
-          "token": "secure-task-token-101",
-          "authentication": { "schemes": ["Bearer"] } // Server needs a Bearer token to call webhook
+          "url": "https://mycompany.com/webhooks/a2a/task_updates",
+          "token": "opaque-client-token-for-task-777", // For client validation
+          "authentication": {
+            // Info for SERVER to authenticate TO webhook
+            "schemes": ["Bearer"], // Example: webhook expects a JWT Bearer token
+            // Credentials field might be omitted if server uses its own pre-configured client creds for this webhook URL
+            "credentials": null // Or potentially JWT audience/scope info if needed
+          }
         }
       }
     }
@@ -639,44 +660,48 @@ _(Note: Timestamps and session IDs in examples are illustrative)_
 2.  **Server -> Client:** Server acknowledges task submission (likely with `state: "submitted"` or `"working"`).
 
     ```json
+    // Response Body
     {
       "jsonrpc": "2.0",
       "id": 401,
       "result": {
-        "id": "task-long-run-101",
-        "status": { "state": "submitted" /*...*/ }
+        "id": "task-report-gen-777",
+        "status": { "state": "submitted", "timestamp": "2024-10-27T11:00:00Z" }
         /*...*/
       }
     }
     ```
 
-3.  **(Later) Server -> Webhook URL:** When the task completes, the server makes an authenticated POST request to `https://client.example.com/a2a_webhook`.
-    - **Request Headers:**
-      - `Authorization: Bearer <server_obtained_token>` (Server gets this token using info from `pushNotification.authentication`, e.g., client credentials flow, or pre-shared key signed JWT).
+3.  **(Later: Hours/Days) Server -> Webhook URL:** When the task completes, the server makes an **authenticated** POST request to `https://mycompany.com/webhooks/a2a/task_updates`.
+
+    - **Request Headers likely include:**
+      - `Authorization: Bearer <server_obtained_jwt>` (Server gets this JWT based on `pushNotification.authentication` requirements, perhaps using client credentials flow with an identity provider trusted by the webhook).
       - `Content-Type: application/json`
-      - May include `X-A2A-Token: secure-task-token-101` (if `token` was provided).
-    - **Request Body:** (Payload format is convention-based, but should include task info)
+      - `X-A2A-Token: opaque-client-token-for-task-777` (Server includes the token provided by the client).
+    - **Request Body:** (Payload format is convention-based, but should identify the task and its status. Sending the full Task object is also possible but potentially large).
 
-        ```json
-        {
-        "taskId": "task-long-run-101",
-        "status": {
-            "state": "completed",
-            "timestamp": "2024-10-27T18:30:00Z"
+      ```json
+      {
+        "taskId": "task-report-gen-777",
+        "finalStatus": {
+          "state": "completed",
+          "timestamp": "2024-10-28T18:30:00Z"
+          // Could include simplified artifact info or just signal completion
         }
-        // Might include full Task object or just key info
-        }
-        ```
+        // Potentially a signature of the payload if required by webhook
+      }
+      ```
 
-4.  **Webhook -> Client:** The webhook endpoint verifies the incoming request (checks signature/token) and notifies the original client application.
-5.  **Client -> Server:** Client can optionally call `tasks/get` to retrieve the full `Task` object including artifacts.
+4.  **Webhook -> Client:** The webhook endpoint (`mycompany.com`) **verifies** the incoming request (checks `Authorization` token validity, checks `X-A2A-Token` matches expectation for the task, potentially checks payload signature) and then notifies the original client application internally (e.g., via a message queue, internal API call).
+5.  **Client -> Server (Optional):** The client, now notified, can call `tasks/get` to retrieve the full `Task` object including the generated report artifact(s).
 
     ```json
+    // Request Body
     {
       "jsonrpc": "2.0",
       "id": 402,
       "method": "tasks/get",
-      "params": { "id": "task-long-run-101" }
+      "params": { "id": "task-report-gen-777" }
     }
     ```
 
@@ -684,19 +709,24 @@ _(Note: Timestamps and session IDs in examples are illustrative)_
 
 ### 10.1. Relationship to MCP (Model Context Protocol)
 
-- **MCP:** Focuses on connecting agents/models to **tools, APIs, and resources** with structured inputs/outputs. It defines how an agent _uses_ a capability provided by an external system (which could be a simple API or another agent acting as a tool).
-- **A2A:** Focuses on communication **between agentic systems themselves**, facilitating collaboration, task delegation, and exchange of conversational context or higher-level results _as peers_.
-- **Complementary:** They address different levels of interaction. An agent (Client) might use A2A to ask another agent (Server) to perform a complex task. The Server agent might then use MCP to interact with several underlying tools (databases, APIs) to fulfill that A2A task. An A2A agent's `AgentCard` _can_ potentially be represented or discovered via MCP mechanisms if it's intended to be used like a structured tool by another system.
+- **MCP:** Focuses on connecting agents/models to **tools, APIs, and resources** with structured inputs/outputs. It standardizes how an agent _uses_ a capability provided by an external system (which could be a simple API, a database, or even another agent exposing a tool-like interface). See [modelcontextprotocol.io](https://modelcontextprotocol.io/).
+- **A2A:** Focuses on communication **between agentic systems themselves**, facilitating higher-level collaboration, task delegation, negotiation, and exchange of conversational context or complex results _as peers_, without necessarily exposing internal tools or structure.
+- **Complementary:** They address different, but related, levels of interaction. An agent (Client) might use A2A to ask another specialized agent (Server) to perform a complex task ("Analyze this financial data and provide insights"). The Server agent might then use MCP to interact with several underlying tools (databases, calculation APIs, charting libraries) to fulfill that A2A task. It's conceivable that an A2A agent's `AgentCard` could be represented or discovered via MCP mechanisms if it's intended to be used primarily like a structured tool by another system, but A2A's core strength lies in more flexible, stateful, and potentially multi-modal peer-to-peer agent collaboration.
 
-_(See [A2A ❤️ MCP Topic](https://google.github.io/A2A/#/topics/a2a_and_mcp.md))_
+_(See also [A2A ❤️ MCP Topic](https://google.github.io/A2A/#/topics/a2a_and_mcp.md))_
 
 ### 10.2. Security Considerations Summary
 
-- **Transport:** Always use HTTPS with robust TLS settings in production.
-- **Authentication:** Handled via standard HTTP headers (e.g., `Authorization`). A2A payloads are identity-agnostic. Requirements are advertised in `AgentCard`. Clients obtain credentials out-of-band. Servers MUST validate credentials on every request.
-- **Authorization:** Server-side responsibility based on authenticated identity. Granularity may depend on requested skills or actions within a task.
-- **Push Notifications:** Introduce additional security points:
-  - **Server:** Validate webhook URLs. Use secure methods (JWT signed with JWKS-retrieved keys, OAuth Client Credentials, etc.) to authenticate _to_ the webhook endpoint as specified in `PushNotificationConfig.authentication`.
-  - **Webhook Endpoint:** Verify the authenticity and integrity of incoming notifications (e.g., validate JWT signature, check provided `token`). Prevent replay attacks (e.g., using timestamps, nonces within signed payloads).
-- **Input Validation:** Servers must rigorously validate all inputs received via RPC parameters, including data within `Part` objects, to prevent injection or processing attacks.
-- **Resource Management:** Servers should implement rate limiting and resource controls to prevent denial-of-service from malicious or runaway clients.
+- **Transport:** **Always** use HTTPS with strong TLS configurations (TLS 1.2+, appropriate ciphers) in production.
+- **Authentication:** Handled via standard HTTP mechanisms (primarily `Authorization` header). A2A payloads themselves are identity-agnostic. Authentication requirements MUST be advertised in the `AgentCard`. Clients obtain credentials out-of-band. Servers MUST validate credentials on **every** incoming request.
+- **Authorization:** Purely a server-side responsibility based on the authenticated identity. Granularity may depend on requested skills (`AgentSkill`), specific actions attempted within a task, or data access policies. Implement least privilege.
+- **Push Notifications:** Introduce significant additional security considerations:
+  - **Server Trusting Webhook URL:** Servers SHOULD validate the `url` provided in `PushNotificationConfig` (e.g., via allowlists, network policies, or an initial verification request if feasible) to prevent SSRF or DDoS amplification.
+  - **Server Authenticating to Webhook:** The server MUST securely authenticate itself to the webhook endpoint using the method specified in `PushNotificationConfig.authentication`. This often involves managing client credentials or signing tokens securely.
+  - **Webhook Endpoint Verifying Server:** The webhook MUST rigorously verify the authenticity and integrity of incoming notification requests (e.g., validate JWT signature against trusted keys/JWKS endpoint, check `Authorization` token, match `X-A2A-Token`).
+  - **Replay Prevention:** Webhooks should implement measures to prevent replay attacks (e.g., checking timestamps (`iat`, `exp`) in JWTs, using nonces within signed payloads, maintaining state of received notification IDs). See [Push Notifications Topic](https://google.github.io/A2A/#/topics/push_notifications.md).
+- **Input Validation:** Servers MUST rigorously validate **all** inputs received via RPC parameters, including content types, sizes, and data structures within `Part` objects, to prevent injection attacks, resource exhaustion, or unexpected behavior.
+- **Resource Management:** Servers should implement rate limiting, concurrency controls, and potentially limits on task duration or resource consumption (CPU, memory, network) per client/task to ensure stability and prevent denial-of-service from malicious or buggy clients.
+- **Data Privacy:** Consider the sensitivity of data exchanged in `Message` and `Artifact` parts. Ensure compliance with relevant privacy regulations. Avoid including unnecessary sensitive information.
+
+_(See also [Enterprise Readiness Topic](https://google.github.io/A2A/#/topics/enterprise_ready.md))_
