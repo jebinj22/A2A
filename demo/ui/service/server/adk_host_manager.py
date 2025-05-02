@@ -63,11 +63,12 @@ class ADKHostManager(ApplicationManager):
     self._artifact_service = InMemoryArtifactService()
     self._memory_service = InMemoryMemoryService()
     self._host_agent = HostAgent([], self.task_callback)
+    self._context_to_conversation = {}
     self.user_id = "test_user"
     self.app_name = "A2A"
     self.api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
     self.uses_vertex_ai = uses_vertex_ai or os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").upper() == "TRUE"
-    
+
     # Set environment variables based on auth method
     if self.uses_vertex_ai:
       os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
@@ -76,9 +77,9 @@ class ADKHostManager(ApplicationManager):
       # Use API key authentication
       os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
       os.environ["GOOGLE_API_KEY"] = self.api_key
-      
+
     self._initialize_host()
-    
+
     # Map of message id to task id
     self._task_map = {}
     # Map to manage 'lost' message ids until protocol level id is introduced
@@ -88,7 +89,7 @@ class ADKHostManager(ApplicationManager):
     """Update the API key and reinitialize the host if needed"""
     if api_key and api_key != self.api_key:
       self.api_key = api_key
-      
+
       # Only update if not using Vertex AI
       if not self.uses_vertex_ai:
         os.environ["GOOGLE_API_KEY"] = api_key
@@ -115,32 +116,24 @@ class ADKHostManager(ApplicationManager):
     return c
 
   def sanitize_message(self, message: Message) -> Message:
-    if not message.metadata:
-      message.metadata = {}
-    if 'message_id' not in message.metadata:
-      message.metadata.update({'message_id': str(uuid.uuid4())})
-    if 'conversation_id' in message.metadata:
-      conversation = self.get_conversation(message.metadata['conversation_id'])
-      if conversation:
-        if conversation.messages:
-          # Get the last message
-          last_message_id = get_message_id(conversation.messages[-1])
-          if last_message_id:
-            message.metadata.update({'last_message_id': last_message_id})
+    if message.contextId:
+      conversation = self.get_conversation(message.contextId)
+      # Check if the last event in the conversation was tied to a task.
+      if conversation.messages:
+        if (conversation.messages[-1].taskId and
+            task_still_open(next(
+                filter(lambda x: x.id == conversation.messages[-1].taskId,
+                       self._tasks), None))):
+          message.taskId = conversation.messages[-1].taskId
     return message
 
   async def process_message(self, message: Message):
-    self._messages.append(message)
-    message_id = get_message_id(message)
+    message_id = message.messageId
     if message_id:
       self._pending_message_ids.append(message_id)
-    conversation_id = (
-        message.metadata['conversation_id']
-        if 'conversation_id' in message.metadata
-        else None
-    )
-    # Now check the conversation and attach the message id.
-    conversation = self.get_conversation(conversation_id)
+    context_id = message.contextId
+    conversation = self.get_conversation(context_id)
+    self._messages.append(message)
     if conversation:
       conversation.messages.append(message)
     self.add_event(Event(
@@ -154,21 +147,13 @@ class ADKHostManager(ApplicationManager):
     session = self._session_service.get_session(
         app_name='A2A',
         user_id='test_user',
-        session_id=conversation_id)
+        session_id=context_id)
     # Update state must happen in the event
     state_update = {
-        'input_message_metadata': message.metadata,
-        'session_id': conversation_id
+        'task_id': message.taskId,
+        'context_id': context_id,
+        'message_id': message.messageId
     }
-    last_message_id = get_last_message_id(message)
-    if (last_message_id and
-        last_message_id in self._task_map and
-        task_still_open(next(
-            filter(
-                lambda x: x.id == self._task_map[last_message_id],
-                self._tasks),
-            None))):
-          state_update['task_id'] = self._task_map[last_message_id]
     # Need to upsert session state now, only way is to append an event.
     self._session_service.append_event(session, ADKEvent(
         id=ADKEvent.new_id(),
@@ -178,32 +163,20 @@ class ADKHostManager(ApplicationManager):
     ))
     async for event in self._host_runner.run_async(
         user_id=self.user_id,
-        session_id=conversation_id,
+        session_id=context_id,
         new_message=self.adk_content_from_message(message)
     ):
       self.add_event(Event(
           id=event.id,
           actor=event.author,
-          content=self.adk_content_to_message(event.content, conversation_id),
+          content=self.adk_content_to_message(event.content, context_id),
           timestamp=event.timestamp,
       ))
       final_event = event
     response: Message | None = None
     if final_event:
       final_event.content.role = 'model'
-      response = self.adk_content_to_message(final_event.content, conversation_id)
-      last_message_id = get_message_id(message)
-      new_message_id = ""
-      if last_message_id and last_message_id in self._next_id:
-        new_message_id = self._next_id[last_message_id]
-      else:
-        new_message_id = str(uuid.uuid4())
-        last_message_id = None
-      response.metadata = {
-          **message.metadata,
-          **{'last_message_id': last_message_id,
-             'message_id': new_message_id}
-      }
+      response = self.adk_content_to_message(final_event.content, context_id)
       self._messages.append(response)
 
     if conversation:
@@ -227,7 +200,6 @@ class ADKHostManager(ApplicationManager):
       self.attach_message_to_task(task.status.message, current_task.id)
       self.insert_message_history(current_task, task.status.message)
       self.update_task(current_task)
-      self.insert_id_trace(task.status.message)
       return current_task
     elif isinstance(task, TaskArtifactUpdateEvent):
       current_task = self.add_or_get_task(task)
@@ -237,19 +209,16 @@ class ADKHostManager(ApplicationManager):
     # Otherwise this is a Task, either new or updated
     elif not any(filter(lambda x: x.id == task.id, self._tasks)):
       self.attach_message_to_task(task.status.message, task.id)
-      self.insert_id_trace(task.status.message)
       self.add_task(task)
       return task
     else:
       self.attach_message_to_task(task.status.message, task.id)
-      self.insert_id_trace(task.status.message)
       self.update_task(task)
       return task
 
   def emit_event(self, task: TaskCallbackArg, agent_card: AgentCard):
     content = None
-    conversation_id = get_conversation_id(task)
-    metadata = {'conversation_id': conversation_id} if conversation_id else None
+    context_id = task.contextId
     if isinstance(task, TaskStatusUpdateEvent):
       if task.status.message:
         content = task.status.message
@@ -257,13 +226,17 @@ class ADKHostManager(ApplicationManager):
         content = Message(
           parts=[TextPart(text=str(task.status.state))],
           role="agent",
-          metadata=metadata,
+          messageId=str(uuid.uuid4()),
+          contextId=task.contextId,
+          taskId=task.id,
         )
     elif isinstance(task, TaskArtifactUpdateEvent):
       content = Message(
           parts=task.artifact.parts,
           role="agent",
-          metadata=metadata,
+          messageId=str(uuid.uuid4()),
+          contextId=task.contextId,
+          taskId=task.id,
       )
     elif task.status and task.status.message:
       content = task.status.message
@@ -274,13 +247,17 @@ class ADKHostManager(ApplicationManager):
       content = Message(
           parts=parts,
           role="agent",
-          metadata=metadata,
+          messageId=str(uuid.uuid4()),
+          taskId=task.id,
+          contextId=task.contextId,
       )
     else:
       content = Message(
           parts=[TextPart(text=str(task.status.state))],
           role="agent",
-          metadata=metadata,
+          messageId=str(uuid.uuid4()),
+          taskId=task.id,
+          contextId=task.contextId,
       )
     self.add_event(Event(
           id=str(uuid.uuid4()),
@@ -290,44 +267,37 @@ class ADKHostManager(ApplicationManager):
     ))
 
   def attach_message_to_task(self, message: Message | None, task_id: str):
-    if message and message.metadata and 'message_id' in message.metadata:
-      self._task_map[message.metadata['message_id']] = task_id
-
-  def insert_id_trace(self, message: Message | None):
-    if not message:
-      return
-    message_id = get_message_id(message)
-    last_message_id = get_last_message_id(message)
-    if message_id and last_message_id:
-      self._next_id[last_message_id] = message_id
+    if message:
+      self._task_map[message.messageId] = task_id
 
   def insert_message_history(self, task: Task, message: Message | None):
     if not message:
       return
     if task.history is None:
       task.history = []
-    message_id = get_message_id(message)
+    message_id = message.messageId
     if not message_id:
       return
-    if get_message_id(task.status.message) not in [
-        get_message_id(x) for x in task.history
+    if task.status.message.messageId not in [
+        x.messageId for x in task.history
     ]:
       task.history.append(task.status.message)
     else:
-      print("Message id already in history", get_message_id(task.status.message), task.history)
+      print("Message id already in history",
+            task.status.message.messageId,
+            task.history)
 
   def add_or_get_task(self, task: TaskCallbackArg):
     current_task = next(filter(lambda x: x.id == task.id, self._tasks), None)
     if not current_task:
-      conversation_id = None
-      if task.metadata and 'conversation_id' in task.metadata:
-        conversation_id = task.metadata['conversation_id']
+      context_id = task.contextId
       current_task = Task(
           id=task.id,
-          status=TaskStatus(state = TaskState.SUBMITTED), #initialize with submitted
+          #initialize with submitted
+          status=TaskStatus(state = TaskState.SUBMITTED),
           metadata=task.metadata,
           artifacts = [],
-          sessionId=conversation_id,
+          contextId=context_id,
       )
       self.add_task(current_task)
       return current_task
@@ -439,13 +409,14 @@ class ADKHostManager(ApplicationManager):
           raise ValueError("Unsupported message type")
     return types.Content(parts=parts, role=message.role)
 
-  def adk_content_to_message(self, content: types.Content, conversation_id: str) -> Message:
+  def adk_content_to_message(self, content: types.Content, context_id: str) -> Message:
     parts: list[Part] = []
     if not content.parts:
       return Message(
           parts=[],
           role=content.role if content.role == 'user' else 'agent',
-          metadata={'conversation_id': conversation_id},
+          contextId=contextId,
+          messageId=str(uuid.uuid4()),
       )
     for part in content.parts:
       if part.text:
@@ -478,16 +449,17 @@ class ADKHostManager(ApplicationManager):
       elif part.function_call:
         parts.append(DataPart(data=part.function_call.model_dump()))
       elif part.function_response:
-        parts.extend(self._handle_function_response(part, conversation_id))
+        parts.extend(self._handle_function_response(part, context_id))
       else:
         raise ValueError("Unexpected content, unknown type")
     return Message(
         role=content.role if content.role == 'user' else 'agent',
         parts=parts,
-        metadata={'conversation_id': conversation_id},
+        contextId=context_id,
+        messageId=str(uuid.uuid4()),
     )
 
-  def _handle_function_response(self, part: types.Part, conversation_id: str) -> list[Part]:
+  def _handle_function_response(self, part: types.Part, context_id: str) -> list[Part]:
     parts = []
     try:
       for p in part.function_response.response['result']:
@@ -500,10 +472,11 @@ class ADKHostManager(ApplicationManager):
             parts.append(DataPart(data=p))
         elif isinstance(p, DataPart):
           if 'artifact-file-id' in p.data:
-            file_part = self._artifact_service.load_artifact(user_id=self.user_id,
-                                                          session_id=conversation_id,
-                                                          app_name=self.app_name,
-                                                          filename = p.data['artifact-file-id'])
+            file_part = self._artifact_service.load_artifact(
+                user_id=self.user_id,
+                session_id=context_id,
+                app_name=self.app_name,
+                filename = p.data['artifact-file-id'])
             file_data = file_part.inline_data
             base64_data = base64.b64encode(file_data.data).decode('utf-8')
             parts.append(FilePart(
@@ -519,16 +492,6 @@ class ADKHostManager(ApplicationManager):
       print("Couldn't convert to messages:", e)
       parts.append(DataPart(data=part.function_response.model_dump()))
     return parts
-
-def get_message_id(m: Message | None) -> str  | None:
-  if not m or not m.metadata or 'message_id' not in m.metadata:
-    return None
-  return m.metadata['message_id']
-
-def get_last_message_id(m: Message | None) -> str | None:
-  if not m or not m.metadata or 'last_message_id' not in m.metadata:
-    return None
-  return m.metadata['last_message_id']
 
 def get_conversation_id(
     t: (Task |

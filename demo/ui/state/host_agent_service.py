@@ -129,7 +129,7 @@ async def UpdateAppState(state: AppState, conversation_id: str):
     for task in await GetTasks():
       state.task_list.append(
           SessionTask(
-              session_id=extract_conversation_id(task),
+              context_id=extract_conversation_id(task),
               task=convert_task_to_state(task)
           )
       )
@@ -138,15 +138,15 @@ async def UpdateAppState(state: AppState, conversation_id: str):
   except Exception as e:
     print("Failed to update state: ", e)
     traceback.print_exc(file=sys.stdout)
-    
+
 async def UpdateApiKey(api_key: str):
     """Update the API key"""
     import httpx
-    
+
     try:
         # Set the environment variable
         os.environ["GOOGLE_API_KEY"] = api_key
-        
+
         # Call the update API endpoint
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -162,9 +162,11 @@ async def UpdateApiKey(api_key: str):
 def convert_message_to_state(message: Message) -> StateMessage:
   if not message:
     return StateMessage()
-  
+
   return StateMessage(
-      message_id = extract_message_id(message),
+      message_id = message.messageId,
+      context_id = message.contextId if message.contextId else "",
+      task_id = message.taskId if message.taskId else "",
       role = message.role,
       content = extract_content(message.parts),
   )
@@ -186,7 +188,7 @@ def convert_task_to_state(task: Task) -> StateTask:
     output = [extract_content(last_message.parts)] + output
   return StateTask(
       task_id=task.id,
-      session_id=task.sessionId,
+      context_id=task.contextId,
       state=str(task.status.state),
       message=convert_message_to_state(message),
       artifacts=output,
@@ -194,7 +196,7 @@ def convert_task_to_state(task: Task) -> StateTask:
 
 def convert_event_to_state(event: Event) -> StateEvent:
   return StateEvent(
-      conversation_id=extract_message_conversation(event.content),
+      context_id=extract_message_conversation(event.content),
       actor=event.actor,
       role=event.content.role,
       id=event.id,
@@ -226,31 +228,28 @@ def extract_content(message_parts: list[Part]) -> list[Tuple[str | dict[str, Any
   return parts
 
 def extract_message_id(message: Message) -> str:
-  if message.metadata and 'message_id' in message.metadata:
-    return message.metadata['message_id']
-  return ""
+  return message.messageId
 
-def extract_message_conversation(message: Task) -> str:
-  if message.metadata and 'conversation_id' in message.metadata:
-    return message.metadata['conversation_id']
-  return ""
+def extract_message_conversation(message: Message) -> str:
+  return message.contextId if message.contextId else ""
 
 def extract_conversation_id(task: Task) -> str:
-  if task.sessionId:
-    return task.sessionId
+  if task.contextId:
+    return task.contextId
   # Tries to find the first conversation id for the message in the task.
   if (
       task.status.message and
-      task.status.message.metadata and
-      'conversation_id' in task.status.message.metadata):
-    return task.status.message.metadata['conversation_id']
+      task.status.message.contextId):
+    return task.status.message.contextId
   # Now check if maybe the task has conversation id in metadata.
-  if (task.metadata and 'conversation_id' in task.metadata):
-    return task.metadata['conversation_id']
+  #if (task.metadata and 'conversation_id' in task.metadata):
+  #  return task.metadata['conversation_id']
   # Now check if any artifacts contain a conversation id.
   if not task.artifacts:
     return ""
   for a in task.artifacts:
-    if a.metadata and 'conversation_id' in a.metadata:
-      return a.metadata['conversation_id']
+    if a.contextId:
+      return a.contextId
+    #if a.metadata and 'conversation_id' in a.metadata:
+    #  return a.metadata['conversation_id']
   return ""

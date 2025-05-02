@@ -15,7 +15,7 @@ def task_card(tasks: list[SessionTask]):
   columns = ["Conversation ID", "Task ID", "Description", "Status", "Output"]
   df_data = dict([(c, []) for c in columns])
   for task in tasks:
-    df_data["Conversation ID"].append(task.session_id)
+    df_data["Conversation ID"].append(task.context_id)
     df_data["Task ID"].append(task.task.task_id)
     df_data["Description"].append('\n'.join(message_string(x[0]) for x in task.task.message.content))
     df_data["Status"].append(task.task.state)
@@ -45,4 +45,3 @@ def flatten_artifacts(task: StateTask) -> str:
         parts.append(p[1])
 
   return '\n'.join(parts)
-

@@ -1,8 +1,8 @@
 import json
 from typing import AsyncIterable
 from common.types import (
-    SendTaskRequest,
-    TaskSendParams,
+    SendTaskRequest, # deprecated
+    TaskSendParams, # deprecated
     Message,
     TaskStatus,
     Artifact,
@@ -11,17 +11,22 @@ from common.types import (
     TextPart,
     TaskState,
     Task,
-    SendTaskResponse,
+    SendTaskResponse, # deprecated
     InternalError,
     JSONRPCResponse,
-    SendTaskStreamingRequest,
-    SendTaskStreamingResponse,
+    SendTaskStreamingRequest, # deprecated
+    SendTaskStreamingResponse, # deprecated
+    SendMessageRequest,
+    SendMessageResponse,
+    SendMessageStreamRequest,
+    SendMessageStreamResponse
 )
 from common.server.task_manager import InMemoryTaskManager
 from agent import MindsDBAgent
 import common.server.utils as utils
 from typing import Union
 import logging
+import uuid
 logger = logging.getLogger(__name__)
 
 class AgentTaskManager(InMemoryTaskManager):
@@ -31,52 +36,54 @@ class AgentTaskManager(InMemoryTaskManager):
         self.agent = agent
 
     async def _stream_generator(
-        self, request: SendTaskStreamingRequest
-    ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
-        task_send_params: TaskSendParams = request.params
-        query = self._get_user_query(task_send_params)
+        self, request: SendTaskStreamingRequest | SendMessageStreamRequest
+    ) -> AsyncIterable[TaskStatusUpdateEvent | TaskArtifactUpdateEvent] | JSONRPCResponse:
+        task_id, context_id = self._extract_task_and_context(request.params)
+        query = self._get_user_query(request.params)
         try:
-          async for item in self.agent.stream(query, task_send_params.sessionId):
+          async for item in self.agent.stream(query, context_id):
             is_task_complete = item["is_task_complete"]
             parts = item["parts"]
-            
 
             if not is_task_complete:
-                task_state = TaskState.WORKING  
+                task_state = TaskState.WORKING
                 metadata = item["metadata"]
-                message = Message(role="agent", parts=parts, metadata=metadata)
+                message = Message(
+                    role="agent",
+                    parts=parts,
+                    metadata=metadata,
+                    taskId=task_id,
+                    contextId=context_id,
+                    messageId=str(uuid.uuid4()),
+                )
                 task_status = TaskStatus(state=task_state, message=message)
-                await self._update_store(task_send_params.id, task_status, [])
+                await self._update_store(task_id, task_status, [])
                 task_update_event = TaskStatusUpdateEvent(
-                    id=task_send_params.id,
+                    id=task_id,
                     status=task_status,
                     final=False,
+                    contextId=context_id,
                 )
-                yield SendTaskStreamingResponse(id=request.id, result=task_update_event)
+                yield task_update_event
             else:
-                #task_state = TaskState.INPUT_REQUIRED
                 task_state = TaskState.COMPLETED
                 artifact = Artifact(parts=parts, index=0, append=False)
                 task_status = TaskStatus(state=task_state)
-                yield SendTaskStreamingResponse(
-                  id=request.id,
-                  result=TaskArtifactUpdateEvent(
-                      id=task_send_params.id,
+                yield TaskArtifactUpdateEvent(
+                      id=task_id,
                       artifact=artifact,
-                  )
+                      contextId=context_id
                 )
-                await self._update_store(task_send_params.id, task_status, [artifact])
-                yield SendTaskStreamingResponse(
-                    id=request.id,
-                    result=TaskStatusUpdateEvent(
-                        id=task_send_params.id,
-                        status=TaskStatus(
-                            state=task_status.state,
-                        ),
-                        final=True
-                    )
+                await self._update_store(task_id, task_status, [artifact])
+                yield TaskStatusUpdateEvent(
+                    id=task_id,
+                    status=TaskStatus(
+                        state=task_status.state,
+                    ),
+                    final=True,
+                    contextId=context_id,
                 )
-           
+
         except Exception as e:
             logger.error(f"An error occurred while streaming the response: {e}")
             yield JSONRPCResponse(
@@ -85,33 +92,82 @@ class AgentTaskManager(InMemoryTaskManager):
                     message="An error occurred while streaming the response"
                 ),
             )
+
     def _validate_request(
-        self, request: Union[SendTaskRequest, SendTaskStreamingRequest]
-    ) -> None:
-        task_send_params: TaskSendParams = request.params
-        if not utils.are_modalities_compatible(
-            task_send_params.acceptedOutputModes, MindsDBAgent.SUPPORTED_CONTENT_TYPES
-        ):
-            logger.warning(
-                "Unsupported output mode. Received %s, Support %s",
-                task_send_params.acceptedOutputModes,
-                MindsDBAgent.SUPPORTED_CONTENT_TYPES,
-            )
-            return utils.new_incompatible_types_error(request.id)
-    async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
+        self, request: Union[
+            SendTaskRequest, SendTaskStreamingRequest,
+            SendMessageRequest, SendMessageStreamRequest]
+    ) -> JSONRPCResponse | None:
+        invalidOutput = self._validate_output_modes(
+            request, MindsDBAgent.SUPPORTED_CONTENT_TYPES)
+        if invalidOutput:
+            logger.warning(invalidOutput.error)
+            return invalidOutput
+        return None
+
+    # deprecated
+    async def on_send_task(
+        self, request: SendTaskRequest
+    ) -> SendTaskResponse:
         error = self._validate_request(request)
         if error:
             return error
         await self.upsert_task(request.params)
-        return await self._invoke(request)
+        task = await self._invoke(request)
+        return SendTaskResponse(id=request.id, result=task)
+
+    async def on_send_message(
+        self, request: SendMessageRequest
+    ) -> SendMessageResponse:
+        error = self._validate_request(request)
+        if error:
+            return error
+        task_id, context_id = self._extract_task_and_context(request.params)
+        request.params.message.taskId = task_id
+        request.params.message.contextId = context_id
+        await self.upsert_task(request.params)
+        task = await self._invoke(request)
+        return SendMessageResponse(id=request.id, result=task)
+
+    # deprecated
     async def on_send_task_subscribe(
         self, request: SendTaskStreamingRequest
     ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
         error = self._validate_request(request)
         if error:
             return error
+        task_id, context_id = self._extract_task_and_context(request.params)
+        request.params.message.taskId = task_id
+        request.params.message.contextId = context_id
         await self.upsert_task(request.params)
-        return self._stream_generator(request)
+        stream = self._stream_generator(request)
+        if isinstance(stream, AsyncIterable):
+            async def wrap_tasks(stream) -> AsyncIterable[SendTaskStreamingRequest]:
+                async for x in stream:
+                    yield SendTaskStreamingResponse(id=request.id, result=x)
+            return wrap_tasks(stream)
+        else:
+            return stream
+
+    async def on_send_message_stream(
+        self, request: SendMessageStreamRequest
+    ) -> AsyncIterable[SendMessageStreamResponse] | JSONRPCResponse:
+        error = self._validate_request(request)
+        if error:
+            return error
+        task_id, context_id = self._extract_task_and_context(request.params)
+        request.params.message.taskId = task_id
+        request.params.message.contextId = context_id
+        await self.upsert_task(request.params)
+        stream = self._stream_generator(request)
+        if isinstance(stream, AsyncIterable):
+            async def wrap_tasks(stream) -> AsyncIterable[SendMessageStreamRequest]:
+                async for x in stream:
+                    yield SendMessageStreamResponse(id=request.id, result=x)
+            return wrap_tasks(stream)
+        else:
+            return stream
+
     async def _update_store(
         self, task_id: str, status: TaskStatus, artifacts: list[Artifact]
     ) -> Task:
@@ -129,28 +185,30 @@ class AgentTaskManager(InMemoryTaskManager):
                     task.artifacts = []
                 task.artifacts.extend(artifacts)
             return task
-    async def _invoke(self, request: SendTaskRequest) -> SendTaskResponse:
-        task_send_params: TaskSendParams = request.params
-        query = self._get_user_query(task_send_params)
+
+    async def _invoke(self, request: SendTaskRequest | SendMessageRequest) -> Task:
+        task_id, context_id = self._extract_task_and_context(request.params)
+        query = self._get_user_query(request.params)
         try:
-            result = self.agent.invoke(query, task_send_params.sessionId)
+            result = self.agent.invoke(query, context_id)
         except Exception as e:
             logger.error(f"Error invoking agent: {e}")
             raise ValueError(f"Error invoking agent: {e}")
         parts = [{"type": "text", "text": result}]
         task_state = TaskState.INPUT_REQUIRED if "MISSING_INFO:" in result else TaskState.COMPLETED
         task = await self._update_store(
-            task_send_params.id,
+            task_id,
             TaskStatus(
-                state=task_state, message=Message(role="agent", parts=parts)
+                state=task_state,
+                message=Message(
+                    role="agent",
+                    parts=parts,
+                    taskId=task_id,
+                    contextId=context_id,
+                    message_id=str(uuid.uuid4()),
+                )
             ),
             [Artifact(parts=parts)],
         )
-        return SendTaskResponse(id=request.id, result=task)
-    
-    def _get_user_query(self, task_send_params: TaskSendParams) -> str:
-        part = task_send_params.message.parts[0]
-        if not isinstance(part, TextPart):
-            raise ValueError("Only text parts are supported")
-        return part.text
+        return task
 

@@ -59,6 +59,9 @@ Part = Annotated[Union[TextPart, FilePart, DataPart], Field(discriminator="type"
 class Message(BaseModel):
     role: Literal["user", "agent"]
     parts: List[Part]
+    messageId: str
+    contextId: str | None = None
+    taskId: str | None = None
     metadata: dict[str, Any] | None = None
 
 
@@ -84,7 +87,7 @@ class Artifact(BaseModel):
 
 class Task(BaseModel):
     id: str
-    sessionId: str | None = None
+    contextId: str
     status: TaskStatus
     artifacts: List[Artifact] | None = None
     history: List[Message] | None = None
@@ -94,13 +97,15 @@ class Task(BaseModel):
 class TaskStatusUpdateEvent(BaseModel):
     id: str
     status: TaskStatus
+    contextId: str
     final: bool = False
     metadata: dict[str, Any] | None = None
 
 
 class TaskArtifactUpdateEvent(BaseModel):
     id: str
-    artifact: Artifact    
+    artifact: Artifact
+    contextId: str
     metadata: dict[str, Any] | None = None
 
 
@@ -126,9 +131,10 @@ class TaskQueryParams(TaskIdParams):
     historyLength: int | None = None
 
 
+# This is being deprecated for MessageSendParams
 class TaskSendParams(BaseModel):
     id: str
-    sessionId: str = Field(default_factory=lambda: uuid4().hex)
+    contextId: str = Field(default_factory=lambda: uuid4().hex)
     message: Message
     acceptedOutputModes: Optional[List[str]] = None
     pushNotification: PushNotificationConfig | None = None
@@ -136,10 +142,29 @@ class TaskSendParams(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+# Represents the configuration of the message send.
+class MessageSendConfiguration(BaseModel):
+    acceptedOutputModes: Optional[List[str]] = None
+    historyLength: Optional[int] = None
+    # If blocking is true, push notification is ignored. Both of these
+    # options are ignored in streaming interactions.
+    pushNotification: Optional[PushNotificationConfig] = None
+    blocking: Optional[bool] = None
+
+
+class MessageSendParams(BaseModel):
+    id: str
+    message: Message
+    configuration: Optional[MessageSendConfiguration] = None
+    metadata: Optional[dict[str, Any]] = None
+
+
 class TaskPushNotificationConfig(BaseModel):
     id: str
     pushNotificationConfig: PushNotificationConfig
 
+
+TaskUpdateEvent = Union[TaskStatusUpdateEvent, TaskArtifactUpdateEvent]
 
 ## RPC Messages
 
@@ -165,6 +190,8 @@ class JSONRPCResponse(JSONRPCMessage):
     error: JSONRPCError | None = None
 
 
+# These four SendTask* objects are deprecated in favor of SendMessage
+# interfaces.
 class SendTaskRequest(JSONRPCRequest):
     method: Literal["tasks/send"] = "tasks/send"
     params: TaskSendParams
@@ -181,6 +208,24 @@ class SendTaskStreamingRequest(JSONRPCRequest):
 
 class SendTaskStreamingResponse(JSONRPCResponse):
     result: TaskStatusUpdateEvent | TaskArtifactUpdateEvent | None = None
+
+
+class SendMessageRequest(JSONRPCRequest):
+    method: Literal["message/send"] = "message/send"
+    params: MessageSendParams
+
+
+class SendMessageResponse(JSONRPCResponse):
+    result: Message | Task | None = None
+
+
+class SendMessageStreamRequest(JSONRPCRequest):
+    method: Literal["message/sendStream"] = "message/sendStream"
+    params: MessageSendParams
+
+
+class SendMessageStreamResponse(JSONRPCResponse):
+    result: Message | Task | TaskUpdateEvent | None = None
 
 
 class GetTaskRequest(JSONRPCRequest):
@@ -232,8 +277,10 @@ A2ARequest = TypeAdapter(
             CancelTaskRequest,
             SetTaskPushNotificationRequest,
             GetTaskPushNotificationRequest,
-            TaskResubscriptionRequest,
-            SendTaskStreamingRequest,
+            TaskResubscriptionRequest,  # deprecated
+            SendTaskStreamingRequest,   # deprecated
+            SendMessageRequest,
+            SendMessageStreamRequest,
         ],
         Field(discriminator="method"),
     ]

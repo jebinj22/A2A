@@ -9,7 +9,7 @@ from fastapi import Request, Response
 from common.types import Message, Task, FilePart, FileContent
 from .in_memory_manager import InMemoryFakeAgentManager
 from .application_manager import ApplicationManager
-from .adk_host_manager import ADKHostManager, get_message_id
+from .adk_host_manager import ADKHostManager #, get_message_id
 from service.types import (
     Conversation,
     Event,
@@ -34,11 +34,11 @@ class ConversationServer:
   def __init__(self, router: APIRouter):
     agent_manager = os.environ.get("A2A_HOST", "ADK")
     self.manager: ApplicationManager
-    
+
     # Get API key from environment
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     uses_vertex_ai = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").upper() == "TRUE"
-    
+
     if agent_manager.upper() == "ADK":
       self.manager = ADKHostManager(api_key=api_key, uses_vertex_ai=uses_vertex_ai)
     else:
@@ -104,11 +104,12 @@ class ConversationServer:
     message_data = await request.json()
     message = Message(**message_data['params'])
     message = self.manager.sanitize_message(message)
-    t = threading.Thread(target=lambda: asyncio.run(self.manager.process_message(message)))
+    t = threading.Thread(
+        target=lambda: asyncio.run(self.manager.process_message(message)))
     t.start()
     return SendMessageResponse(result=MessageInfo(
-        message_id=message.metadata['message_id'],
-        conversation_id=message.metadata['conversation_id'] if 'conversation_id' in message.metadata else '',
+        message_id=message.messageId,
+        context_id=message.contextId if message.contextId else '',
     ))
 
   async def _list_messages(self, request: Request):
@@ -123,7 +124,7 @@ class ConversationServer:
   def cache_content(self, messages: list[Message]):
     rval = []
     for m in messages:
-      message_id = get_message_id(m)
+      message_id = m.messageId #get_message_id(m)
       if not message_id:
         rval.append(m)
         continue
@@ -181,13 +182,13 @@ class ConversationServer:
           content=base64.b64decode(part.file.bytes),
           media_type=part.file.mimeType)
     return Response(content=part.file.bytes, media_type=part.file.mimeType)
-  
+
   async def _update_api_key(self, request: Request):
     """Update the API key"""
     try:
         data = await request.json()
         api_key = data.get("api_key", "")
-        
+
         if api_key:
             # Update in the manager
             self.update_api_key(api_key)

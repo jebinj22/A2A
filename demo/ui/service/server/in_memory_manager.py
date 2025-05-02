@@ -16,6 +16,7 @@ from common.types import (
 from utils.agent_card import get_agent_card
 from service.server.application_manager import ApplicationManager
 from service.server import test_image
+import uuid
 
 class InMemoryFakeAgentManager(ApplicationManager):
   """An implementation of memory based management with fake agent actions
@@ -178,39 +179,61 @@ class InMemoryFakeAgentManager(ApplicationManager):
   def events(self) -> list[Event]:
     return self._events
 
+_contextId = str(uuid.uuid4())
+
 # This represents the precanned responses that will be returned in order.
 # Extend this list to test more functionality of the UI
 _message_queue: list[Message] = [
-    Message(role="agent", parts=[TextPart(text="Hello")]),
-    Message(role="agent", parts=[
-        DataPart(
-            data={
-              'type': 'form',
-              'form': {
-                  'type': 'object',
-                  'properties': {
-                      'name': {
-                          'type': 'string',
-                          'description': 'Enter your name',
-                          'title': 'Name',
-                      },
-                      'date': {
-                          'type': 'string',
-                          'format': 'date',
-                          'description': 'Birthday',
-                          'title': 'Birthday',
-                      },
-                  },
-                  'required': ['date'],
-              },
-              'form_data': {
-                  'name': 'John Smith',
-              },
-              'instructions': "Please provide your birthday and name",
-           }
-        ),
-    ]),
-    Message(role="agent", parts=[TextPart(text="I like cats")]),
-    test_image.test_image,
-    Message(role="agent", parts=[TextPart(text="And I like dogs")]),
+    Message(
+        role="agent",
+        parts=[TextPart(text="Hello")],
+        contextId=_contextId,
+        messageId=str(uuid.uuid4())
+    ),
+    Message(
+        role="agent",
+        parts=[
+            DataPart(
+                data={
+                    'type': 'form',
+                    'form': {
+                        'type': 'object',
+                        'properties': {
+                            'name': {
+                                'type': 'string',
+                                'description': 'Enter your name',
+                                'title': 'Name',
+                            },
+                            'date': {
+                                'type': 'string',
+                                'format': 'date',
+                                'description': 'Birthday',
+                                'title': 'Birthday',
+                            },
+                        },
+                        'required': ['date'],
+                    },
+                    'form_data': {
+                        'name': 'John Smith',
+                    },
+                    'instructions': "Please provide your birthday and name",
+                }
+            ),
+        ],
+        contextId=_contextId,
+        messageId=str(uuid.uuid4()),
+    ),
+    Message(
+        role="agent",
+        parts=[TextPart(text="I like cats")],
+        contextId=_contextId,
+        messageId=str(uuid.uuid4()),
+    ),
+    test_image.make_test_image(_contextId),
+    Message(
+        role="agent",
+        parts=[TextPart(text="And I like dogs")],
+        contextId=_contextId,
+        messageId=str(uuid.uuid4()),
+    ),
 ]

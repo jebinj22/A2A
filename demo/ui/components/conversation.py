@@ -42,7 +42,8 @@ async def send_message(message: str, message_id: str = ""):
   if not c:
     print("Conversation id ", state.conversation_id, " not found")
   request = Message(
-      id=message_id,
+      messageId=message_id,
+      contextId=state.conversation_id,
       role="user",
       parts=[TextPart(text=message)],
       metadata={'conversation_id': c.conversation_id if c else "",

@@ -9,13 +9,15 @@ from common.types import (
     JSONParseError,
     GetTaskRequest,
     CancelTaskRequest,
-    SendTaskRequest,
+    SendTaskRequest, # deprecated
     SetTaskPushNotificationRequest,
     GetTaskPushNotificationRequest,
     InternalError,
     AgentCard,
     TaskResubscriptionRequest,
-    SendTaskStreamingRequest,
+    SendTaskStreamingRequest, # deprecated
+    SendMessageRequest,
+    SendMessageStreamRequest,
 )
 from pydantic import ValidationError
 import json
@@ -23,6 +25,8 @@ from typing import AsyncIterable, Any
 from common.server.task_manager import TaskManager
 
 import logging
+import traceback
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +73,10 @@ class A2AServer:
             if isinstance(json_rpc_request, GetTaskRequest):
                 result = await self.task_manager.on_get_task(json_rpc_request)
             elif isinstance(json_rpc_request, SendTaskRequest):
+                # This is deprecated and will be removed
                 result = await self.task_manager.on_send_task(json_rpc_request)
             elif isinstance(json_rpc_request, SendTaskStreamingRequest):
+                # This is deprecated and will be removed
                 result = await self.task_manager.on_send_task_subscribe(
                     json_rpc_request
                 )
@@ -82,6 +88,14 @@ class A2AServer:
                 result = await self.task_manager.on_get_task_push_notification(json_rpc_request)
             elif isinstance(json_rpc_request, TaskResubscriptionRequest):
                 result = await self.task_manager.on_resubscribe_to_task(
+                    json_rpc_request
+                )
+            elif isinstance(json_rpc_request, SendMessageRequest):
+                result = await self.task_manager.on_send_message(
+                    json_rpc_request
+                )
+            elif isinstance(json_rpc_request, SendMessageStreamRequest):
+                result = await self.task_manager.on_send_message_stream(
                     json_rpc_request
                 )
             else:
@@ -101,6 +115,7 @@ class A2AServer:
         else:
             logger.error(f"Unhandled exception: {e}")
             json_rpc_error = InternalError()
+            traceback.print_exc(file=sys.stdout)
 
         response = JSONRPCResponse(id=None, error=json_rpc_error)
         return JSONResponse(response.model_dump(exclude_none=True), status_code=400)

@@ -37,7 +37,7 @@ class ListMessageResponse(JSONRPCResponse):
 
 class MessageInfo(BaseModel):
   message_id: str
-  conversation_id: str
+  context_id: str
 
 class SendMessageResponse(JSONRPCResponse):
   result: Message | MessageInfo | None = None

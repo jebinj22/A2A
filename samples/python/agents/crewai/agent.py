@@ -185,14 +185,14 @@ class ImageGenerationAgent:
         verbose=False,
     )
 
-  def extract_artifact_file_id(self, query):    
+  def extract_artifact_file_id(self, query):
     try:
       pattern = r'(?:id|artifact-file-id)\s+([0-9a-f]{32})'
       match = re.search(pattern, query)
 
       if match:
         return match.group(1)
-      else:        
+      else:
         return None
     except Exception as e:
       return None
@@ -203,7 +203,7 @@ class ImageGenerationAgent:
 
     inputs = {"user_prompt": query, "session_id": session_id, "artifact_file_id": artifact_file_id}
     logger.info(f"Inputs {inputs}")
-    print(f"Inputs {inputs}")    
+    print(f"Inputs {inputs}")
     response = self.image_crew.kickoff(inputs)
     return response
 
@@ -216,8 +216,10 @@ class ImageGenerationAgent:
     cache = InMemoryCache()
     session_data = cache.get(session_id)
     try:
-      cache.get(session_id)
-      return session_data[image_key]
+      if session_data:
+        return session_data[image_key]
+      else:
+        return Imagedata(error="Error generating image, please try again.")
     except KeyError:
       logger.error(f"Error generating image")
       return Imagedata(error="Error generating image, please try again.")

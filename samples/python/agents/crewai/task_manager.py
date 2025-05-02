@@ -1,7 +1,7 @@
 """Agent Task Manager."""
 
 import logging
-from typing import AsyncIterable
+from typing import AsyncIterable, Tuple
 from agent import ImageGenerationAgent
 from common.server.task_manager import InMemoryTaskManager
 from common.server import utils
@@ -10,16 +10,22 @@ from common.types import (
     FileContent,
     FilePart,
     JSONRPCResponse,
-    SendTaskRequest,
-    SendTaskResponse,
-    SendTaskStreamingRequest,
-    SendTaskStreamingResponse,
+    SendTaskRequest, # deprecated
+    SendTaskResponse, # deprecated
+    SendTaskStreamingRequest, # deprecated
+    SendTaskStreamingResponse, # deprecated
     Task,
-    TaskSendParams,
+    TaskSendParams, # deprecated
     TaskState,
     TaskStatus,
     TextPart,
+    SendMessageRequest,
+    SendMessageResponse,
+    SendMessageStreamRequest,
+    SendMessageStreamResponse,
+    MessageSendParams,
 )
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -36,26 +42,40 @@ class AgentTaskManager(InMemoryTaskManager):
   ) -> AsyncIterable[SendTaskResponse]:
     raise NotImplementedError("Not implemented")
 
+  # deprecated
   async def on_send_task(
       self, request: SendTaskRequest
   ) -> SendTaskResponse | AsyncIterable[SendTaskResponse]:
     ## only support text output at the moment
-    if not utils.are_modalities_compatible(
-        request.params.acceptedOutputModes,
-        ImageGenerationAgent.SUPPORTED_CONTENT_TYPES,
-    ):
-      logger.warning(
-          "Unsupported output mode. Received %s, Support %s",
-          request.params.acceptedOutputModes,
-          ImageGenerationAgent.SUPPORTED_CONTENT_TYPES,
-      )
-      return utils.new_incompatible_types_error(request.id)
+    validateOutputModes = self._validate_output_modes(
+        request, ImageGenerationAgent.SUPPORTED_CONTENT_TYPES)
+    if validateOutputModes:
+      return validateOutputModes
 
     task_send_params: TaskSendParams = request.params
     await self.upsert_task(task_send_params)
 
     return await self._invoke(request)
 
+  async def on_send_message(
+      self, request: SendMessageRequest
+  ) -> SendMessageResponse:
+    ## only support text output at the moment
+    validateOutputModes = self._validate_output_modes(
+        request, ImageGenerationAgent.SUPPORTED_CONTENT_TYPES)
+    if validateOutputModes:
+      return validateOutputModes
+
+    taskId, contextId = self._extract_task_and_context(request.params)
+    request.params.message.taskId = taskId
+    request.params.message.contextId = contextId
+    await self.upsert_task(request.params)
+
+    # Repackage the SendTaskResponse as SendMessageReponse
+    response = await self._invoke(request)
+    return SendMessageResponse(id=response.id, result=response.result)
+
+  # deprecated
   async def on_send_task_subscribe(
       self, request: SendTaskStreamingRequest
   ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
@@ -64,6 +84,21 @@ class AgentTaskManager(InMemoryTaskManager):
       return error
 
     await self.upsert_task(request.params)
+
+  async def on_send_message_stream(
+      self, request: SendMessageStreamRequest
+  ) -> AsyncIterable[SendMessageStreamResponse] | JSONRPCResponse:
+    error = self._validate_request(request)
+    if error:
+      yield error
+      return
+
+    taskId, contextId = self._extract_task_and_context(request.params)
+    request.params.message.taskId = taskId
+    request.params.message.contextId = contextId
+    await self.upsert_task(request.params)
+    response = await self._invoke(request)
+    yield SendMessageStreamResponse(id=response.id, result=response.result)
 
   async def _update_store(
       self, task_id: str, status: TaskStatus, artifacts: list[Artifact]
@@ -87,19 +122,20 @@ class AgentTaskManager(InMemoryTaskManager):
 
       return task
 
-  async def _invoke(self, request: SendTaskRequest) -> SendTaskResponse:
-    task_send_params: TaskSendParams = request.params
-    query = self._get_user_query(task_send_params)
+  async def _invoke(self, request: SendTaskRequest | SendMessageRequest) -> SendTaskResponse:
+    #task_send_params: TaskSendParams = request.params
+    query = self._get_user_query(request.params)
+    taskId, contextId = self._extract_task_and_context(request.params)
     try:
-      result = self.agent.invoke(query, task_send_params.sessionId)
+      result = self.agent.invoke(query, contextId)
     except Exception as e:
       logger.error("Error invoking agent: %s", e)
       raise ValueError(f"Error invoking agent: {e}") from e
 
     data = self.agent.get_image_data(
-        session_id=task_send_params.sessionId, image_key=result.raw
+        session_id=contextId, image_key=result.raw
     )
-    if not data.error:
+    if data and not data.error:
       parts = [
           FilePart(
               file=FileContent(
@@ -108,19 +144,12 @@ class AgentTaskManager(InMemoryTaskManager):
           )
       ]
     else:
-      parts = [{"type": "text", "text": data.error}]
+      parts = [{"type": "text", "text": data.error if data else "failed to generate image"}]
 
     print(f"Final Result ===> {result}")
     task = await self._update_store(
-        task_send_params.id,
+        taskId,
         TaskStatus(state=TaskState.COMPLETED),
         [Artifact(parts=parts)],
     )
     return SendTaskResponse(id=request.id, result=task)
-
-  def _get_user_query(self, task_send_params: TaskSendParams) -> str:
-    part = task_send_params.message.parts[0]
-    if not isinstance(part, TextPart):
-      raise ValueError("Only text parts are supported")
-
-    return part.text

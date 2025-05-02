@@ -19,6 +19,8 @@ class StateConversation:
 class StateMessage:
   """StateMessage provides mesop state compliant view of a message"""
   message_id: str = ""
+  task_id: str = ""
+  context_id: str = ""
   role: str = ""
   # Each content entry is a content, media type pair.
   content: list[Tuple[ContentPart, str]] = dataclasses.field(default_factory=list)
@@ -27,7 +29,7 @@ class StateMessage:
 class StateTask:
   """StateTask provides mesop state compliant view of task"""
   task_id: str = ""
-  session_id: str | None = None
+  context_id: str | None = None
   state: str | None = None
   message: StateMessage = dataclasses.field(default_factory=StateMessage)
   artifacts: list[list[Tuple[ContentPart,str]]] = dataclasses.field(default_factory=list)
@@ -35,13 +37,13 @@ class StateTask:
 @dataclass
 class SessionTask:
   """SessionTask organizes tasks based on conversation"""
-  session_id: str = ""
+  context_id: str = ""
   task: StateTask = dataclasses.field(default_factory=StateTask)
 
 @dataclass
 class StateEvent:
   """StateEvent provides mesop state compliant view of event"""
-  conversation_id: str = ""
+  context_id: str = ""
   actor: str = ""
   role: str = ""
   id: str = ""
@@ -81,4 +83,3 @@ class SettingsState:
       "text/plain",
     ]
   )
-
