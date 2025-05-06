@@ -1,28 +1,32 @@
-from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+import json
+import logging
+
+from collections.abc import AsyncIterable
+from typing import Any
+
+from pydantic import ValidationError
 from sse_starlette.sse import EventSourceResponse
+from starlette.applications import Starlette
 from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from common.server.task_manager import TaskManager
 from common.types import (
     A2ARequest,
-    JSONRPCResponse,
+    AgentCard,
+    CancelTaskRequest,
+    GetTaskPushNotificationRequest,
+    GetTaskRequest,
+    InternalError,
     InvalidRequestError,
     JSONParseError,
-    GetTaskRequest,
-    CancelTaskRequest,
+    JSONRPCResponse,
     SendTaskRequest,
-    SetTaskPushNotificationRequest,
-    GetTaskPushNotificationRequest,
-    InternalError,
-    AgentCard,
-    TaskResubscriptionRequest,
     SendTaskStreamingRequest,
+    SetTaskPushNotificationRequest,
+    TaskResubscriptionRequest,
 )
-from pydantic import ValidationError
-import json
-from typing import AsyncIterable, Any
-from common.server.task_manager import TaskManager
 
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +34,7 @@ logger = logging.getLogger(__name__)
 class A2AServer:
     def __init__(
         self,
-        host="0.0.0.0",
+        host='0.0.0.0',
         port=5000,
     ):
         self.host = host
@@ -104,22 +108,25 @@ class A2AServer:
         elif isinstance(e, ValidationError):
             json_rpc_error = InvalidRequestError(data=json.loads(e.json()))
         else:
-            logger.error(f"Unhandled exception: {e}")
+            logger.error(f'Unhandled exception: {e}')
             json_rpc_error = InternalError()
 
         response = JSONRPCResponse(id=None, error=json_rpc_error)
-        return JSONResponse(response.model_dump(exclude_none=True), status_code=400)
+        return JSONResponse(
+            response.model_dump(exclude_none=True), status_code=400
+        )
 
-    def _create_response(self, result: Any) -> JSONResponse | EventSourceResponse:
+    def _create_response(
+        self, result: Any
+    ) -> JSONResponse | EventSourceResponse:
         if isinstance(result, AsyncIterable):
 
             async def event_generator(result) -> AsyncIterable[dict[str, str]]:
                 async for item in result:
-                    yield {"data": item.model_dump_json(exclude_none=True)}
+                    yield {'data': item.model_dump_json(exclude_none=True)}
 
             return EventSourceResponse(event_generator(result))
-        elif isinstance(result, JSONRPCResponse):
+        if isinstance(result, JSONRPCResponse):
             return JSONResponse(result.model_dump(exclude_none=True))
-        else:
-            logger.error(f"Unexpected result type: {type(result)}")
-            raise ValueError(f"Unexpected result type: {type(result)}")
+        logger.error(f'Unexpected result type: {type(result)}')
+        raise ValueError(f'Unexpected result type: {type(result)}')
