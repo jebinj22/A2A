@@ -39,13 +39,20 @@ class A2AServer:
         self.app = Starlette()
 
     def register_agent(self, endpoint: str, agent_card: AgentCard, task_manager: TaskManager):
-        if endpoint in self.agents:
-            raise ValueError(f"Endpoint {endpoint} is already in use.")
-
+        """Register a new agent or update existing one."""
+        print("Registering agent============:", endpoint)
         self.agents[endpoint] = {
             "agent_card": agent_card,
             "task_manager": task_manager,
         }
+        
+        # Remove existing routes for this endpoint if they exist
+        self.app.router.routes = [route for route in self.app.router.routes 
+                                if not (hasattr(route, 'path') and 
+                                      (route.path == endpoint or 
+                                       route.path == f"{endpoint}/.well-known/agent.json"))]
+        
+        # Add/update routes
         self.app.add_route(endpoint, self._process_request(endpoint), methods=["POST"])
         self.app.add_route(
             f"{endpoint}/.well-known/agent.json", self._get_agent_card(endpoint), methods=["GET"]
